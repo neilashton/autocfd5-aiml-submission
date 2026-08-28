@@ -173,7 +173,9 @@ def _validate_series(series: object, case_id: str) -> tuple[Mapping[str, Any], .
             ):
                 raise ProfileEvaluationError(f"{case_id} series {key} segment coverage is invalid")
             coordinates = numeric[start:stop]
-            if len(coordinates) < 2 or np.any(np.diff(coordinates) <= 0.0):
+            # A supported singleton is a valid disconnected segment.  Strict
+            # monotonicity is meaningful only when a segment has multiple points.
+            if len(coordinates) > 1 and np.any(np.diff(coordinates) <= 0.0):
                 raise ProfileEvaluationError(f"{case_id} series {key} segment is not increasing")
             cursor = stop
         if cursor != count:
