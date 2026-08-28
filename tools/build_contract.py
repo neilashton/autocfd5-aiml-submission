@@ -143,10 +143,6 @@ def transform_profiles(source: dict[str, Any]) -> dict[str, Any]:
             "display_coordinate_is_scoring_input": False,
             "segments_are_sorted_or_joined_for_display": False,
         },
-        "excluded_diagnostics": {
-            "discrete_cp_tap_count": 209,
-            "included_in_score": False,
-        },
     }
 
 

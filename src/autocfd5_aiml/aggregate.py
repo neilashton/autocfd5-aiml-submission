@@ -254,7 +254,6 @@ def aggregate_cases(
             "profile_weight": 0.25,
             "constant_profiles_scored": True,
             "relative_profiles_weight": 0.0,
-            "discrete_cp_taps_included": False,
         },
     }
 

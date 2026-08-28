@@ -974,7 +974,6 @@ def scoring() -> list[Flowable]:
             bullet("Velocity is <font name='Courier'>magnitude(UMeanTrim) / 38.889</font>. Cp is <font name='Courier'>2 * pMeanTrim / 38.889^2</font>."),
             bullet("Profile integration follows each scoring coordinate. Every case/profile block is normalized to unit supported length, giving cases and profiles equal weight in global R2."),
             bullet("Integration stops at every segment boundary. No unsupported interval is bridged and no smoothing is applied."),
-            bullet("The 209 discrete Cp taps are excluded from this calculation."),
             callout(
                 "Why the complete split matters",
                 "R2 measures variation across observations. An individual case supplies losses and "

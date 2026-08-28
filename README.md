@@ -13,7 +13,6 @@ The scientific calculation is frozen:
 - raw stair-stepped profile samples retained without smoothing;
 - explicit unsupported intervals retained as separate segments and never joined;
 - Cp scored using arc length, but displayed using physical streamwise `x`;
-- the 209 discrete Cp taps excluded.
 
 The metric IDs, numerical outputs, compact `result.json`, and 40-series profile output are compatible with the approved DrivAerML evaluator. Only repository-specific administrative envelopes and identities differ.
 

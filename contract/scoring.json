@@ -101,10 +101,6 @@
     "cp_display_coordinate": "streamwise_x_m",
     "display_coordinate_affects_score": false
   },
-  "excluded": {
-    "discrete_cp_tap_count": 209,
-    "included_in_score": false
-  },
   "availability": {
     "single_case": "field errors, forces and profile losses only",
     "complete_test_split": "R2, component scores and overall score"

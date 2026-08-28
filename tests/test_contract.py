@@ -54,7 +54,6 @@ def test_approved_component_weights_and_groups() -> None:
     assert groups == {"field_score": 50.0, "force_score": 50.0, "diagnostic_score": 50.0}
     assert composite_overall_score(values, overall) == 50.0
     assert scoring["profile_rules"]["report_only"]["weight"] == 0.0
-    assert scoring["excluded"]["discrete_cp_tap_count"] == 209
 
 
 def test_repository_root_is_this_checkout() -> None:

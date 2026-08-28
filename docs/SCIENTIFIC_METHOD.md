@@ -32,8 +32,6 @@ Velocity is `magnitude(UMeanTrim) / 38.889`. Cp prediction is `2 * pMeanTrim / 3
 
 Velocity truth is retained exactly as sampled from native cells. Repeated adjacent values are expected and are not smoothed. Cp scoring uses arc length. The HTML report uses the supplied physical streamwise `x` values for the horizontal axis without sorting or joining segments; display coordinates never enter scoring.
 
-The 209 discrete Cp taps are outside this calculation.
-
 ## Composite score
 
 Each bounded field error `e` with cap `c` becomes `clip(100 * (1 - e/c), 0, 100)`. Each R2 becomes `100 * clip(R2, 0, 1)`. The nine transformed components are summed with their declared weights. Group scores are the normalized weighted means within fields, forces, and profiles.
