@@ -1,0 +1,112 @@
+{
+  "schema": "autocfd5-aiml-drivaerml-scoring-v1",
+  "schema_version": 1,
+  "dataset_id": "drivaerml",
+  "status": "approved",
+  "overall_score_composite": {
+    "metric_id": "overall_score",
+    "operation": "weighted_component_scores",
+    "components": [
+      {
+        "metric_id": "surface_pressure_rel_l2",
+        "weight": 0.15,
+        "transform": "bounded_error",
+        "cap": 15.0
+      },
+      {
+        "metric_id": "surface_wall_shear_rel_l2",
+        "weight": 0.1,
+        "transform": "bounded_error",
+        "cap": 20.0
+      },
+      {
+        "metric_id": "volume_velocity_rel_l2",
+        "weight": 0.15,
+        "transform": "bounded_error",
+        "cap": 12.0
+      },
+      {
+        "metric_id": "volume_pressure_rel_l2",
+        "weight": 0.1,
+        "transform": "bounded_error",
+        "cap": 15.0
+      },
+      {
+        "metric_id": "cd_r2",
+        "weight": 0.15,
+        "transform": "bounded_quality"
+      },
+      {
+        "metric_id": "cl_r2",
+        "weight": 0.05,
+        "transform": "bounded_quality"
+      },
+      {
+        "metric_id": "c_pitch_r2",
+        "weight": 0.05,
+        "transform": "bounded_quality"
+      },
+      {
+        "metric_id": "velocity_profile_r2",
+        "weight": 0.15,
+        "transform": "bounded_quality"
+      },
+      {
+        "metric_id": "cp_cut_r2",
+        "weight": 0.1,
+        "transform": "bounded_quality"
+      }
+    ]
+  },
+  "component_score_groups": {
+    "operation": "normalized_weighted_component_scores",
+    "groups": [
+      {
+        "metric_id": "field_score",
+        "component_metric_ids": [
+          "surface_pressure_rel_l2",
+          "surface_wall_shear_rel_l2",
+          "volume_velocity_rel_l2",
+          "volume_pressure_rel_l2"
+        ]
+      },
+      {
+        "metric_id": "force_score",
+        "component_metric_ids": ["cd_r2", "cl_r2", "c_pitch_r2"]
+      },
+      {
+        "metric_id": "diagnostic_score",
+        "component_metric_ids": ["velocity_profile_r2", "cp_cut_r2"]
+      }
+    ]
+  },
+  "group_weights": {
+    "field": 0.5,
+    "force": 0.25,
+    "profiles": 0.25
+  },
+  "profile_rules": {
+    "scored": {
+      "constant_velocity_series_per_case": 16,
+      "constant_cp_series_per_case": 4
+    },
+    "report_only": {
+      "relative_velocity_series_per_case": 16,
+      "relative_cp_series_per_case": 4,
+      "weight": 0.0
+    },
+    "smoothing_applied": false,
+    "gaps_bridged": false,
+    "cp_scoring_coordinate": "arc_length_m",
+    "cp_display_coordinate": "streamwise_x_m",
+    "display_coordinate_affects_score": false
+  },
+  "excluded": {
+    "discrete_cp_tap_count": 209,
+    "included_in_score": false
+  },
+  "availability": {
+    "single_case": "field errors, forces and profile losses only",
+    "complete_test_split": "R2, component scores and overall score"
+  }
+}
