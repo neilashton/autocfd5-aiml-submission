@@ -4,6 +4,9 @@ This public repository is the participant route for evaluating predictions from 
 
 For the complete participant procedure, use the [formatted submission instructions](output/pdf/AutoCFD5_AIML_Submission_Instructions.pdf).
 
+> [!IMPORTANT]
+> **Complete native-cell field coverage is required.** For every selected test case, the evaluator input must contain predictions for every cell of both the pinned surface VTP and the pinned volume VTU. The surface requires `pMeanTrim` and `wallShearStressMeanTrim`; the volume requires `pMeanTrim` and `UMeanTrim`. Inference may be performed in chunks or on another representation, but the final export must map back to every native `raw_cell_id` exactly once, with no missing or duplicate cells. Surface-only, volume-only, sampled, or profiles-only results are not accepted.
+
 The scientific calculation is frozen:
 
 - identical native DrivAerML field and force reductions;

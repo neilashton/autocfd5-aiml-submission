@@ -474,8 +474,8 @@ def cover_story() -> list[Flowable]:
         AccentRule(58 * mm, ORANGE),
         Spacer(1, 12 * mm),
         para(
-            "A reproducible route to prepare native predictions, run the approved evaluator, "
-            "inspect results, and deliver a verified entry.",
+            "A reproducible route to export complete native-cell surface and volume predictions, "
+            "run the approved evaluator, inspect results, and deliver a verified entry.",
             "cover_subtitle",
         ),
         Spacer(1, 17 * mm),
@@ -524,10 +524,23 @@ def start_here() -> list[Flowable]:
     )
     items.extend(
         [
-            Spacer(1, 3),
+            callout(
+                "Mandatory: complete full-field predictions on both native meshes",
+                "For <b>every selected test case</b>, export a prediction for <b>every cell</b> of both "
+                "the pinned surface VTP and the pinned volume VTU. The surface requires "
+                "<font name='Courier'>pMeanTrim</font> and "
+                "<font name='Courier'>wallShearStressMeanTrim</font>; the volume requires "
+                "<font name='Courier'>pMeanTrim</font> and <font name='Courier'>UMeanTrim</font>.<br/><br/>"
+                "Inference may run in chunks or on another representation, but the final export must "
+                "map back to every native <font name='Courier'>raw_cell_id</font> exactly once, with no "
+                "missing or duplicate cells. Surface-only, volume-only, sampled, or profiles-only "
+                "results are not accepted; the evaluator stops before scoring them.",
+                tone="orange",
+            ),
+            Spacer(1, 2),
             numbered(1, "Clone the evaluator and select the frozen <b>evaluator-v1.1</b> release."),
             numbered(2, "Fetch the immutable profile-support bundle and the pinned native test files."),
-            numbered(3, "Create <b>entry.json</b> and native prediction chunks for every selected case."),
+            numbered(3, "Create <b>entry.json</b> and export complete surface and volume prediction chunks for every selected case."),
             numbered(4, "Validate the entry, then evaluate one case while developing your export."),
             numbered(5, "Evaluate the official <b>full</b> split as the minimum common comparison."),
             numbered(6, "Inspect <b>result.json</b> and selected local HTML profile reports."),
