@@ -1,6 +1,8 @@
 # AutoCFD5 AIML submission evaluator
 
-This private repository is the participant route for evaluating DrivAerML predictions for the AutoCFD5 AIML workshop. Participants run the evaluator themselves, inspect their own results, and deliver one verified compact ZIP to the organizers.
+This public repository is the participant route for evaluating DrivAerML predictions for the AutoCFD5 AIML workshop. Participants run the evaluator themselves, inspect their own results, and deliver one verified compact ZIP confidentially to the organisers.
+
+For the complete participant procedure, use the [formatted submission instructions](output/pdf/AutoCFD5_AIML_Submission_Instructions.pdf).
 
 The scientific calculation is frozen:
 
@@ -20,8 +22,9 @@ The metric IDs, numerical outputs, compact `result.json`, and 40-series profile 
 Use Linux, Python 3.12, NumPy 2.2.6, and VTK 9.5.2. A container is provided because the native-file protections rely on Linux descriptor semantics.
 
 ```bash
-git clone git@github.com:neilashton/autocfd5-aiml-submission.git
+git clone https://github.com/neilashton/autocfd5-aiml-submission.git
 cd autocfd5-aiml-submission
+git checkout evaluator-v1
 python3.12 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
