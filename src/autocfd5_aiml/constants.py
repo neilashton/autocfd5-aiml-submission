@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-EVALUATOR_VERSION = "autocfd5-aiml-evaluator-v1.1"
+EVALUATOR_VERSION = "autocfd5-aiml-evaluator-v1.1.1"
 DATASET_REPOSITORY = "neashton/drivaerml"
 DATASET_REVISION = "7a5c0948ce27be709b1116a3a190f806e7a8f79f"
 DATASET_TYPE = "dataset"
