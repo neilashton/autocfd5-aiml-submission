@@ -4,6 +4,7 @@ import shutil
 import stat
 import subprocess
 import zipfile
+from collections.abc import Sequence
 from pathlib import Path, PurePosixPath
 
 from .constants import (
@@ -102,6 +103,27 @@ def fetch_dataset_split(
     case_ids = split.get("test_case_ids")
     if not isinstance(case_ids, list) or not case_ids:
         raise FetchError("split has no test cases")
+    fetch_dataset_cases(
+        case_ids=case_ids,
+        native_source_pin=native_source_pin,
+        destination=destination,
+        dry_run=dry_run,
+    )
+
+
+def fetch_dataset_cases(
+    *,
+    case_ids: Sequence[str],
+    native_source_pin: Path | str,
+    destination: Path | str,
+    dry_run: bool = False,
+) -> None:
+    if (
+        not case_ids
+        or any(not isinstance(case_id, str) for case_id in case_ids)
+        or len(case_ids) != len(set(case_ids))
+    ):
+        raise FetchError("test case IDs must be a non-empty unique sequence")
     pin = load_native_source_pin(native_source_pin)
     filenames = ["force_mom_constref_all.csv"]
     for case_id in case_ids:
@@ -130,4 +152,4 @@ def fetch_dataset_split(
     _run(arguments)
 
 
-__all__ = ["FetchError", "fetch_dataset_split", "fetch_support"]
+__all__ = ["FetchError", "fetch_dataset_cases", "fetch_dataset_split", "fetch_support"]

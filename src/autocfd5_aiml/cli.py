@@ -8,7 +8,7 @@ from pathlib import Path
 from .case_evaluator import evaluate_case
 from .constants import contract_root
 from .entry import evaluate_entry, load_entry
-from .fetch import fetch_dataset_split, fetch_support
+from .fetch import fetch_dataset_cases, fetch_dataset_split, fetch_support
 from .jsonio import write_json
 from .packaging import create_package, verify_package
 from .report import render_case_report
@@ -70,8 +70,12 @@ def _parser() -> argparse.ArgumentParser:
     support.add_argument("--destination", type=Path, required=True)
     support.add_argument("--archive", type=Path)
 
-    data = commands.add_parser("fetch-data", help="Fetch pinned native data for one test split.")
-    data.add_argument("--split-id", required=True)
+    data = commands.add_parser(
+        "fetch-data", help="Fetch pinned native test data for an official split or entry."
+    )
+    data_source = data.add_mutually_exclusive_group(required=True)
+    data_source.add_argument("--split-id")
+    data_source.add_argument("--entry-root", type=Path)
     data.add_argument("--destination", type=Path, required=True)
     data.add_argument(
         "--native-source-pin", type=Path, default=contract_root() / "native-source-pin.json"
@@ -113,6 +117,8 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "evaluate-entry":
             entry = load_entry(args.entry_root / "entry.json")
             split_path = contract_root() / "splits" / f"{entry['split_id']}.json"
+            if not split_path.is_file():
+                split_path = None
             force_truth = args.force_truth or args.dataset_root / "force_mom_constref_all.csv"
             result = evaluate_entry(
                 entry_root=args.entry_root,
@@ -136,13 +142,22 @@ def main(argv: list[str] | None = None) -> int:
             root = fetch_support(args.destination, archive=args.archive)
             _print({"status": "complete", "support_root": str(root)})
         elif args.command == "fetch-data":
-            split_path = contract_root() / "splits" / f"{args.split_id}.json"
-            fetch_dataset_split(
-                split_path=split_path,
-                native_source_pin=args.native_source_pin,
-                destination=args.destination,
-                dry_run=args.dry_run,
-            )
+            if args.entry_root is not None:
+                entry = load_entry(args.entry_root / "entry.json")
+                fetch_dataset_cases(
+                    case_ids=entry["test_case_ids"],
+                    native_source_pin=args.native_source_pin,
+                    destination=args.destination,
+                    dry_run=args.dry_run,
+                )
+            else:
+                split_path = contract_root() / "splits" / f"{args.split_id}.json"
+                fetch_dataset_split(
+                    split_path=split_path,
+                    native_source_pin=args.native_source_pin,
+                    destination=args.destination,
+                    dry_run=args.dry_run,
+                )
             _print({"status": "complete", "dry_run": args.dry_run})
         elif args.command == "report":
             path = render_case_report(

@@ -18,6 +18,11 @@ def test_native_source_pin_and_splits_are_closed() -> None:
     assert len(pin.cases) == 484
     split_paths = sorted((contract_root() / "splits").glob("*.json"))
     assert len(split_paths) == 8
+    entry_schema = read_json(contract_root() / "entry.schema.json")
+    declared_official = set(
+        entry_schema["allOf"][0]["if"]["properties"]["split_id"]["enum"]
+    )
+    assert declared_official == {path.stem for path in split_paths}
     for path in split_paths:
         split = read_json(path)
         assert split["test_case_count"] == len(split["test_case_ids"])

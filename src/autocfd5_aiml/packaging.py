@@ -187,9 +187,27 @@ def _verify_result(result: dict[str, Any], archive: zipfile.ZipFile) -> None:
     ):
         raise PackageError("result split ID is invalid")
     split_path = contract_root() / "splits" / f"{split_id}.json"
-    expected_split = read_json(split_path)
+    if split_path.is_file():
+        if "custom-split.json" in archive.namelist():
+            raise PackageError("an official split package may not contain custom-split.json")
+        expected_split = read_json(split_path)
+        split_sha256 = sha256_file(split_path)
+        official = True
+    else:
+        try:
+            custom_split_payload = archive.read("custom-split.json")
+        except KeyError as error:
+            raise PackageError("custom split declaration is missing") from error
+        expected_split = read_json_bytes(custom_split_payload)
+        _verify_custom_split(expected_split, split_id)
+        split_sha256 = sha256_bytes(custom_split_payload)
+        official = False
     if (
-        split.get("split_sha256") != sha256_file(split_path)
+        split.get("split_sha256") != split_sha256
+        or split.get("official") is not official
+        or split.get("case_set_id") != expected_split.get("case_set_id")
+        or split.get("train_case_count") != expected_split.get("train_case_count")
+        or split.get("validation_case_count") != expected_split.get("validation_case_count")
         or split.get("test_case_ids") != expected_split.get("test_case_ids")
         or split.get("test_case_count") != expected_split.get("test_case_count")
     ):
@@ -280,6 +298,63 @@ def _verify_result(result: dict[str, Any], archive: zipfile.ZipFile) -> None:
         )
     ):
         raise PackageError("result metrics are incomplete or non-finite")
+
+
+def _verify_custom_split(document: dict[str, Any], split_id: str) -> None:
+    required = {
+        "schema",
+        "schema_version",
+        "dataset_id",
+        "split_id",
+        "split_label",
+        "case_set_id",
+        "official",
+        "train_case_count",
+        "train_case_ids",
+        "validation_case_count",
+        "validation_case_ids",
+        "test_case_count",
+        "test_case_ids",
+    }
+    if (
+        set(document) != required
+        or document.get("schema") != "autocfd5-aiml-drivaerml-split-v1"
+        or document.get("schema_version") != 1
+        or document.get("dataset_id") != "drivaerml"
+        or document.get("split_id") != split_id
+        or not isinstance(document.get("split_label"), str)
+        or not document["split_label"].strip()
+        or document.get("case_set_id") != "participant_custom"
+        or document.get("official") is not False
+    ):
+        raise PackageError("custom split declaration differs")
+    arrays: list[list[str]] = []
+    for prefix in ("train", "validation", "test"):
+        case_ids = document.get(f"{prefix}_case_ids")
+        if (
+            not isinstance(case_ids, list)
+            or not case_ids
+            or any(
+                not isinstance(case_id, str)
+                or re.fullmatch(r"run_[1-9][0-9]*", case_id) is None
+                for case_id in case_ids
+            )
+            or len(case_ids) != len(set(case_ids))
+            or document.get(f"{prefix}_case_count") != len(case_ids)
+        ):
+            raise PackageError(f"custom split {prefix} case IDs are invalid")
+        arrays.append(case_ids)
+    if any(set(left) & set(right) for index, left in enumerate(arrays) for right in arrays[index + 1 :]):
+        raise PackageError("custom split train, validation and test IDs overlap")
+    native_pin = read_json(contract_root() / "native-source-pin.json")
+    known_case_ids = {
+        case.get("case_id")
+        for case in native_pin.get("cases", [])
+        if isinstance(case, dict) and isinstance(case.get("case_id"), str)
+    }
+    unknown = set().union(*(set(case_ids) for case_ids in arrays)) - known_case_ids
+    if unknown:
+        raise PackageError("custom split contains run IDs outside the pinned dataset")
 
 
 def read_json_bytes(payload: bytes) -> dict[str, Any]:

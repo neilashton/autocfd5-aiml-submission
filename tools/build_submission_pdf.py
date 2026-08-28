@@ -48,6 +48,7 @@ CONTENT_WIDTH = PAGE_WIDTH - LEFT - RIGHT
 REPOSITORY_URL = "https://github.com/neilashton/autocfd5-aiml-submission"
 SUPPORT_URL = f"{REPOSITORY_URL}/releases/tag/support-v1"
 DATASET_URL = "https://huggingface.co/datasets/neashton/drivaerml"
+DROPBOX_REQUEST_URL = "https://www.dropbox.com/request/A6cJNTT9egFtYiFICjAi"
 DATASET_REVISION = "7a5c0948ce27be709b1116a3a190f806e7a8f79f"
 SUPPORT_ARCHIVE_SHA256 = "5ebcf744be53016bd158236d1f4af3290ff399b323c0e11a49c37ea9a6c686f6"
 SUPPORT_INDEX_SHA256 = "f47f8c3ed7a56632b0c02a3aec793e4cd823d5d04d5264d00fcd419bf11c0f4f"
@@ -397,7 +398,7 @@ def draw_content(canvas, doc) -> None:  # noqa: ANN001
     canvas.line(LEFT, 13 * mm, PAGE_WIDTH - RIGHT, 13 * mm)
     canvas.setFillColor(MUTED)
     canvas.setFont("Helvetica", 7)
-    canvas.drawString(LEFT, 8.5 * mm, "Version 1.0  |  28 August 2026")
+    canvas.drawString(LEFT, 8.5 * mm, "Version 1.1  |  28 August 2026")
     page_label = f"{canvas.getPageNumber():02d}"
     canvas.setFont("Helvetica-Bold", 8)
     canvas.setFillColor(NAVY)
@@ -502,7 +503,7 @@ def cover_story() -> list[Flowable]:
             ),
         ),
         Spacer(1, 20 * mm),
-        para("Version 1.0  /  28 August 2026", "cover_meta"),
+        para("Version 1.1  /  28 August 2026", "cover_meta"),
         para(
             f'<link href="{REPOSITORY_URL}" color="#22B8CF">{REPOSITORY_URL}</link>',
             "cover_meta",
@@ -516,25 +517,26 @@ def start_here() -> list[Flowable]:
     items = section_title(
         "01 / Start here",
         "The complete route, at a glance",
-        "You run the official evaluator on your own machine. The public repository carries the "
-        "code and fixed support data; your predictions and results remain under your control until "
-        "you use the private workshop upload route.",
+        f'You run the official evaluator on your own machine using the <link href="{DATASET_URL}">'
+        "pinned DrivAerML dataset</link>. The public repository carries the code and fixed support "
+        "data; your predictions and results remain under your control until you use the private "
+        "workshop upload route. The next section lists every official split.",
     )
     items.extend(
         [
             Spacer(1, 3),
-            numbered(1, "Clone the evaluator and select the frozen <b>evaluator-v1</b> release."),
+            numbered(1, "Clone the evaluator and select the frozen <b>evaluator-v1.1</b> release."),
             numbered(2, "Fetch the immutable profile-support bundle and the pinned native test files."),
             numbered(3, "Create <b>entry.json</b> and native prediction chunks for every selected case."),
             numbered(4, "Validate the entry, then evaluate one case while developing your export."),
-            numbered(5, "Evaluate all 50 cases in the <b>medium</b> test split to obtain official scores."),
+            numbered(5, "Evaluate the official <b>full</b> split as the minimum common comparison."),
             numbered(6, "Inspect <b>result.json</b> and selected local HTML profile reports."),
             numbered(7, "Create and verify one deterministic ZIP, then upload it confidentially."),
             callout(
                 "Public repository does not mean public submissions",
                 "Do not commit predictions or results, attach them to an issue, or open a pull request. "
-                "The organisers provide a OneDrive or SharePoint File Request that permits upload but "
-                "does not reveal other teams' files. The email is only a checksum receipt.",
+                f'The organisers provide an <link href="{DROPBOX_REQUEST_URL}">AutoCFD Dropbox File '
+                "Request</link> for confidential upload. The email is only a checksum receipt.",
                 tone="orange",
             ),
             para("Who is responsible for what", "h2"),
@@ -558,8 +560,75 @@ def start_here() -> list[Flowable]:
             ),
             para("What you hand in", "h2"),
             bullet("One verified <b>.zip</b> produced by <font name='Courier'>autocfd5-aiml package</font>."),
-            bullet("A short email containing team ID, submission ID, filename, and the exact SHA-256."),
+            bullet("A short email containing the committee-issued submission ID, filename, and exact SHA-256."),
             bullet("No raw native prediction files unless the organisers explicitly request a separately hosted immutable artifact."),
+            callout(
+                "Questions",
+                'Contact <link href="mailto:neil@neilashton.co.uk">neil@neilashton.co.uk</link> or '
+                '<link href="mailto:astridwalle@cfdsolutions.net">astridwalle@cfdsolutions.net</link>, '
+                "the AutoCFD5 AI/ML TFG organisers.",
+            ),
+            PageBreak(),
+        ]
+    )
+    return items
+
+
+def split_choices() -> list[Flowable]:
+    items = section_title(
+        "02 / Official splits",
+        "Use Full as the common baseline",
+        "The AutoCFD organising committee asks every participant to evaluate the official Full split "
+        "as the minimum common comparison. You are welcome to test the other official splits too.",
+    )
+    items.extend(
+        [
+            callout(
+                "Committee recommendation",
+                "Use <b>split_id = full</b> for the primary submission. Official split membership is "
+                "frozen in the evaluator, so participants do not need to repeat its training and "
+                "validation IDs in <font name='Courier'>entry.json</font>.",
+                tone="orange",
+            ),
+            data_table(
+                ["Official split", "Train", "Validation", "Test", "Case set"],
+                [
+                    ["full", "400", "34", "50", "Standard - requested baseline"],
+                    ["medium", "133", "34", "50", "Standard"],
+                    ["scarce", "67", "34", "50", "Standard"],
+                    ["super_scarce", "11", "34", "50", "Standard"],
+                    ["geometry", "339", "48", "97", "Geometry"],
+                    ["high_drag", "339", "48", "97", "High drag"],
+                    ["low_drag", "339", "48", "97", "Low drag"],
+                    ["rear_separation", "339", "48", "97", "Rear separation"],
+                ],
+                [39 * mm, 18 * mm, 24 * mm, 18 * mm, CONTENT_WIDTH - 99 * mm],
+                compact=True,
+            ),
+            para("If you use a custom split", "h2"),
+            para(
+                "The organisers strongly recommend the official splits. If an additional split is not "
+                "one of those above, give it a new safe <font name='Courier'>split_id</font> and include "
+                "all three ordered run-ID arrays in <font name='Courier'>entry.json</font>:",
+            ),
+            code_block(
+                """
+{
+  "split_id": "my-custom-study",
+  "train_case_ids": ["run_1", "run_2"],
+  "validation_case_ids": ["run_3"],
+  "test_case_ids": ["run_4", "run_5"]
+}
+"""
+            ),
+            bullet("Each array must be non-empty, unique, use <font name='Courier'>run_N</font> IDs from the pinned dataset, and be disjoint from the other two arrays."),
+            bullet("The evaluator writes <font name='Courier'>custom-split.json</font> into the verified result package for the organisers."),
+            code_block(
+                """
+autocfd5-aiml fetch-data --entry-root my-entry \\
+  --destination /data/drivaerml --dry-run
+"""
+            ),
             PageBreak(),
         ]
     )
@@ -568,7 +637,7 @@ def start_here() -> list[Flowable]:
 
 def setup_and_inputs() -> list[Flowable]:
     items = section_title(
-        "02 / Environment",
+        "03 / Environment",
         "Install once; pin everything",
         "Run the scientific calculation on Linux with Python 3.12. The evaluator pins NumPy and VTK "
         "because native-file handling and numerical reproducibility are part of the contract.",
@@ -586,7 +655,7 @@ def setup_and_inputs() -> list[Flowable]:
                 """
 git clone https://github.com/neilashton/autocfd5-aiml-submission.git
 cd autocfd5-aiml-submission
-git checkout evaluator-v1
+git checkout evaluator-v1.1
 
 python3.12 -m venv .venv
 source .venv/bin/activate
@@ -611,13 +680,13 @@ autocfd5-aiml fetch-support --destination support/native-v1
             code_block(
                 """
 autocfd5-aiml fetch-data \\
-  --split-id medium \\
+  --split-id full \\
   --destination /data/drivaerml \\
   --dry-run
 
 # Remove --dry-run only when the location and required storage are ready.
 autocfd5-aiml fetch-data \\
-  --split-id medium \\
+  --split-id full \\
   --destination /data/drivaerml
 """
             ),
@@ -645,11 +714,10 @@ autocfd5-aiml fetch-data \\
 
 def entry_metadata() -> list[Flowable]:
     items = section_title(
-        "03 / Entry metadata",
+        "04 / Entry metadata",
         "Declare the entry and exact split",
-        "Start from the supplied example. Its medium test-case list is the contract: case membership "
-        "and order must be unchanged. Edit only your identity fields unless the organisers explicitly "
-        "select a different published split.",
+        "Use the exact submission ID sent to you by the AutoCFD organising committee. Start from the "
+        "supplied Full-split example and keep its test-case membership and order unchanged.",
     )
     items.extend(
         [
@@ -665,11 +733,10 @@ cp -R examples/entry my-entry
                 [
                     ["schema", "Keep <font name='Courier'>autocfd5-aiml-entry-v1</font>."],
                     ["schema_version", "Keep integer <font name='Courier'>1</font>."],
-                    ["submission_id", "Unique lowercase ID; letters, digits, dot, dash, underscore; at most 80 characters."],
-                    ["team_id", "Registered team ID using the same safe lowercase character set."],
+                    ["submission_id", "Enter the exact ID sent by the AutoCFD organising committee. It uses lowercase letters, digits, dot, dash, or underscore; at most 80 characters."],
                     ["method_name", "Human-readable method name, 1-200 characters."],
-                    ["contact_email", "Email monitored by the submitting team."],
-                    ["split_id", "Keep <font name='Courier'>medium</font> for the published 50-case route."],
+                    ["contact_email", "Email monitored by the participant."],
+                    ["split_id", "Keep <font name='Courier'>full</font> for the requested baseline."],
                     ["test_case_ids", "Copy the example exactly. Membership and order are both checked."],
                     ["prediction_artifact", "Optional; only for an organiser-requested private immutable raw artifact."],
                 ],
@@ -682,11 +749,10 @@ cp -R examples/entry my-entry
 {
   "schema": "autocfd5-aiml-entry-v1",
   "schema_version": 1,
-  "submission_id": "team-method-v1",
-  "team_id": "team-id",
+  "submission_id": "assigned-submission-id",
   "method_name": "Method display name",
-  "contact_email": "team@example.org",
-  "split_id": "medium",
+  "contact_email": "participant@example.org",
+  "split_id": "full",
   "test_case_ids": [ ...copy the complete example array exactly... ]
 }
 """
@@ -700,9 +766,10 @@ cp -R examples/entry my-entry
             code_block("autocfd5-aiml validate-entry my-entry"),
             callout(
                 "Validation has two layers",
-                "<font name='Courier'>validate-entry</font> checks metadata syntax. The full evaluation "
-                "also checks that the split ID, 50 case IDs, and their order exactly match the frozen "
-                "contract, and that every case has valid surface and volume prediction manifests.",
+                "<font name='Courier'>validate-entry</font> checks metadata and split declarations. "
+                "For an official split it requires the frozen test membership and order; for a custom "
+                "split it requires complete, disjoint, known train, validation, and test IDs. The full "
+                "evaluation also requires valid surface and volume prediction manifests for every test case.",
             ),
             PageBreak(),
         ]
@@ -712,7 +779,7 @@ cp -R examples/entry my-entry
 
 def prediction_format() -> list[Flowable]:
     items = section_title(
-        "04 / Predictions",
+        "05 / Predictions",
         "Export native cells, without reordering",
         "Each case contains separate surface and volume manifests plus one or more compressed NPZ "
         "chunks. Raw cell IDs restore native order and must cover the complete native cell range exactly.",
@@ -786,7 +853,7 @@ my-entry/
 
 def development_test() -> list[Flowable]:
     items = section_title(
-        "05 / Development check",
+        "06 / Development check",
         "Prove one case before the full run",
         "Use a selected split case such as run_11 to catch layout, dtype, hash, ID-coverage, and "
         "native-data problems before committing resources to all 50 cases.",
@@ -835,7 +902,7 @@ autocfd5-aiml evaluate-case \\
             para("Optional clean-container check", "h2"),
             code_block(
                 """
-docker build -t autocfd5-aiml:evaluator-v1 .
+docker build -t autocfd5-aiml:evaluator-v1.1 .
 
 # Mount entry, native data, support and result locations explicitly.
 docker run --rm \\
@@ -843,7 +910,7 @@ docker run --rm \\
   -v "/data/drivaerml:/data/drivaerml:ro" \\
   -v "$PWD/support/native-v1:/support/native-v1:ro" \\
   -v "$PWD/output:/results" \\
-  autocfd5-aiml:evaluator-v1 evaluate-case \\
+  autocfd5-aiml:evaluator-v1.1 evaluate-case \\
     --case-id run_11 --dataset-root /data/drivaerml \\
     --support-root /support/native-v1 \\
     --surface-manifest /entries/my-entry/cases/run_11/surface/manifest.json \\
@@ -859,10 +926,10 @@ docker run --rm \\
 
 def full_evaluation() -> list[Flowable]:
     items = section_title(
-        "06 / Full evaluation",
+        "07 / Full evaluation",
         "Run the complete split and inspect it",
         "Official R2 values and the composite score are calculated only after every case in the "
-        "selected test split has completed. The medium route contains 50 cases.",
+        "selected test split has completed. The requested Full baseline contains 50 test cases.",
     )
     items.extend(
         [
@@ -872,7 +939,7 @@ def full_evaluation() -> list[Flowable]:
 autocfd5-aiml evaluate-entry my-entry \\
   --dataset-root /data/drivaerml \\
   --support-root support/native-v1 \\
-  --output output/team-method-v1 \\
+  --output output/assigned-submission-id \\
   --resume
 """
             ),
@@ -886,7 +953,7 @@ autocfd5-aiml evaluate-entry my-entry \\
             para("Output layout", "h2"),
             code_block(
                 """
-output/team-method-v1/
+output/assigned-submission-id/
   result.json                 # aggregate metrics and identities
   provenance.json             # runtime and verification record
   cases/run_N.json            # compact result for each test case
@@ -899,7 +966,7 @@ output/team-method-v1/
             code_block(
                 """
 autocfd5-aiml report \\
-  --result-root output/team-method-v1 \\
+  --result-root output/assigned-submission-id \\
   --support-root support/native-v1 \\
   --case-id run_11 \\
   --output output/run_11.html
@@ -934,7 +1001,7 @@ autocfd5-aiml report \\
 
 def scoring() -> list[Flowable]:
     items = section_title(
-        "07 / Scientific score",
+        "08 / Scientific score",
         "Nine components, one approved composite",
         "The overall score is on a 0-100 scale. Fields contribute 50%, integrated forces 25%, and "
         "constant-placement profiles 25%. Relative-placement profiles remain visible diagnostics.",
@@ -989,7 +1056,7 @@ def scoring() -> list[Flowable]:
 
 def delivery() -> list[Flowable]:
     items = section_title(
-        "08 / Package and delivery",
+        "09 / Package and delivery",
         "Verify first; upload privately",
         "The packaged result is compact and deterministic. It contains the scientific outputs, "
         "profile predictions, entry identity, immutable input hashes, and runtime provenance - not the "
@@ -1000,40 +1067,44 @@ def delivery() -> list[Flowable]:
             para("Create the result package", "h2"),
             code_block(
                 """
-autocfd5-aiml package output/team-method-v1 \\
-  --output team-method-v1.zip
+autocfd5-aiml package output/assigned-submission-id \\
+  --output assigned-submission-id.zip
 
-autocfd5-aiml verify-package team-method-v1.zip
+autocfd5-aiml verify-package assigned-submission-id.zip
 """
             ),
             para(
-                "Packaging also writes <font name='Courier'>team-method-v1.zip.sha256</font>. Both commands "
+                "Replace <font name='Courier'>assigned-submission-id</font> with the exact ID sent by the "
+                "AutoCFD organising committee. Packaging also writes "
+                "<font name='Courier'>assigned-submission-id.zip.sha256</font>. Both commands "
                 "refuse unsafe or inconsistent content. The ZIP is closed by "
                 "<font name='Courier'>package-manifest.json</font>, which records every member's size and SHA-256.",
             ),
             para("Private hand-in", "h2"),
-            numbered(1, "Open the organiser-provided OneDrive or SharePoint <b>File Request</b>."),
-            numbered(2, "Upload only <font name='Courier'>team-method-v1.zip</font>; wait for the upload to complete."),
+            numbered(
+                1,
+                f'<link href="{DROPBOX_REQUEST_URL}"><b>Open the AutoCFD Dropbox File Request</b></link>.',
+            ),
+            numbered(2, "Upload only <font name='Courier'>assigned-submission-id.zip</font>; wait for the upload to complete."),
             numbered(3, "Retain the original ZIP and its generated <font name='Courier'>.sha256</font> file unchanged."),
             numbered(4, "Email the organisers the receipt details below. Do not attach the ZIP to email."),
-            numbered(5, "Keep predictions, results, reports, and the upload link out of public Git history and issue trackers."),
+            numbered(5, "Keep predictions, results, and reports out of public Git history and issue trackers."),
             callout(
                 "What the upload-only request protects",
                 "Participants can add their own file but cannot browse, download, replace, or compare "
-                "other teams' submissions. Organisers keep the destination restricted to the processing "
+                "other participants' submissions. Organisers keep the destination restricted to the processing "
                 "group until the workshop reveal.",
                 tone="orange",
             ),
             para("Checksum receipt email", "h2"),
             code_block(
                 """
-Subject: [AutoCFD5 AIML] entry receipt - <team-id> - <submission-id>
+Subject: [AutoCFD5 AIML] entry receipt - <submission-id>
 
-Team ID: <team-id>
 Submission ID: <submission-id>
 Method: <method-name>
-Uploaded filename: team-method-v1.zip
-SHA-256: <copy the 64-character value from team-method-v1.zip.sha256>
+Uploaded filename: <submission-id>.zip
+SHA-256: <copy the 64-character value from <submission-id>.zip.sha256>
 Upload completed: <YYYY-MM-DD HH:MM UTC>
 Contact: <contact-email>
 """
@@ -1054,7 +1125,7 @@ Contact: <contact-email>
 
 def troubleshooting() -> list[Flowable]:
     items = section_title(
-        "09 / Before you submit",
+        "10 / Before you submit",
         "Troubleshooting and final checks",
         "Most failures are deliberate fail-closed checks. Correct the input or choose a fresh output "
         "location; do not edit a completed result package by hand.",
@@ -1067,7 +1138,7 @@ def troubleshooting() -> list[Flowable]:
                     ["required command is unavailable", "Install the named <font name='Courier'>gh</font> or <font name='Courier'>hf</font> CLI and confirm it is on PATH."],
                     ["support destination is not empty", "Use a new empty directory. Support extraction is intentionally non-overwriting."],
                     ["archive, index, or native source differs", "The file is not the pinned object. Re-fetch into a clean location and do not rename, recompress, or edit it."],
-                    ["entry split ID, order or membership differs", "Restore <font name='Courier'>split_id</font> and the full ordered case list from <font name='Courier'>examples/entry/entry.json</font>."],
+                    ["entry split ID, order or membership differs", "For an official split, restore its complete ordered test list. For a custom split, supply complete, disjoint train, validation, and test arrays."],
                     ["prediction manifest or chunk identity differs", "Regenerate manifest sizes and SHA-256 values after writing final NPZ chunks. Do not modify chunks afterward."],
                     ["raw IDs are missing, repeated, or out of range", "Export every native cell exactly once. Do not use solver-local reorderings without mapping back to raw native IDs."],
                     ["result.json already exists", "That output directory is complete. Choose a new output directory for another model version."],
@@ -1078,22 +1149,24 @@ def troubleshooting() -> list[Flowable]:
                 compact=True,
             ),
             para("Final participant checklist", "h2"),
-            bullet("[ ] I used Linux, Python 3.12, and the frozen <b>evaluator-v1</b> release."),
+            bullet("[ ] I used Linux, Python 3.12, and the frozen <b>evaluator-v1.1</b> release."),
             bullet("[ ] The support and native dataset identities verified automatically."),
-            bullet("[ ] My <font name='Courier'>entry.json</font> uses the registered team identity and exact 50-case medium split."),
+            bullet("[ ] My <font name='Courier'>entry.json</font> uses the submission ID sent by the AutoCFD organising committee and the official Full split."),
             bullet("[ ] Every selected case has complete native-order surface and volume predictions."),
             bullet("[ ] <font name='Courier'>evaluate-entry</font> completed and <font name='Courier'>result.json</font> reports the exact split as complete."),
             bullet("[ ] I inspected aggregate metrics and at least one local HTML report, including both constant and relative profiles."),
             bullet("[ ] <font name='Courier'>verify-package</font> reported the final ZIP as valid."),
-            bullet("[ ] I uploaded the ZIP through the private File Request and retained the original ZIP plus checksum."),
-            bullet("[ ] My receipt email contains the exact team ID, submission ID, filename, and SHA-256."),
+            bullet("[ ] I uploaded the ZIP through the AutoCFD Dropbox File Request and retained the original ZIP plus checksum."),
+            bullet("[ ] My receipt email contains the exact submission ID, filename, and SHA-256."),
             callout(
                 "Canonical references",
                 f'Repository: <link href="{REPOSITORY_URL}">{REPOSITORY_URL}</link><br/>'
                 f'Profile support: <link href="{SUPPORT_URL}">{SUPPORT_URL}</link><br/>'
-                f'DrivAerML dataset: <link href="{DATASET_URL}">{DATASET_URL}</link><br/><br/>'
-                "Use the organiser-provided contact address and private upload link for the active "
-                "workshop round. Do not send an entry through a public repository channel.",
+                f'DrivAerML dataset: <link href="{DATASET_URL}">{DATASET_URL}</link><br/>'
+                f'Submission upload: <link href="{DROPBOX_REQUEST_URL}">{DROPBOX_REQUEST_URL}</link><br/><br/>'
+                'Questions: <link href="mailto:neil@neilashton.co.uk">neil@neilashton.co.uk</link> or '
+                '<link href="mailto:astridwalle@cfdsolutions.net">astridwalle@cfdsolutions.net</link> '
+                "(AutoCFD5 AI/ML TFG organisers). Do not send an entry through a public repository channel.",
             ),
         ]
     )
@@ -1106,6 +1179,7 @@ def build(output: Path) -> None:
     for section in (
         cover_story,
         start_here,
+        split_choices,
         setup_and_inputs,
         entry_metadata,
         prediction_format,

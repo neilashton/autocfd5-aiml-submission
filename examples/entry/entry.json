@@ -1,11 +1,10 @@
 {
   "schema": "autocfd5-aiml-entry-v1",
   "schema_version": 1,
-  "submission_id": "example-team-method-v1",
-  "team_id": "example-team",
+  "submission_id": "assigned-submission-id",
   "method_name": "Example method",
-  "contact_email": "team@example.org",
-  "split_id": "medium",
+  "contact_email": "participant@example.org",
+  "split_id": "full",
   "test_case_ids": [
     "run_11",
     "run_12",

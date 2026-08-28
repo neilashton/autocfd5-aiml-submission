@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "autocfd5-aiml-submission"
-version = "0.1.0"
+version = "0.1.1"
 description = "Reproducible DrivAerML evaluation and submission packaging for AutoCFD5 AIML"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"

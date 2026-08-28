@@ -15,9 +15,27 @@ from autocfd5_aiml.jsonio import read_json, sha256_file, write_json
 from autocfd5_aiml.packaging import PackageError, create_package, verify_package
 
 
-def _result_tree(root: Path) -> None:
+def _result_tree(root: Path, *, custom: bool = False) -> None:
     split_path = contract_root() / "splits" / "medium.json"
     split = read_json(split_path)
+    if custom:
+        split = {
+            "schema": "autocfd5-aiml-drivaerml-split-v1",
+            "schema_version": 1,
+            "dataset_id": "drivaerml",
+            "split_id": "custom-study",
+            "split_label": "Participant custom: custom-study",
+            "case_set_id": "participant_custom",
+            "official": False,
+            "train_case_count": 2,
+            "train_case_ids": ["run_1", "run_2"],
+            "validation_case_count": 1,
+            "validation_case_ids": ["run_3"],
+            "test_case_count": split["test_case_count"],
+            "test_case_ids": split["test_case_ids"],
+        }
+        split_path = root / "custom-split.json"
+        write_json(split_path, split)
     for case_id in split["test_case_ids"]:
         write_json(
             root / "cases" / f"{case_id}.json",
@@ -64,9 +82,13 @@ def _result_tree(root: Path) -> None:
             "schema_version": 1,
             "status": "complete",
             "dataset_id": "drivaerml",
-            "submission": {"submission_id": "team-a-v1"},
+            "submission": {"submission_id": "assigned-submission-id"},
             "split": {
-                "split_id": "medium",
+                "split_id": split["split_id"],
+                "case_set_id": split["case_set_id"],
+                "official": split.get("official") is not False,
+                "train_case_count": split["train_case_count"],
+                "validation_case_count": split["validation_case_count"],
                 "test_case_count": split["test_case_count"],
                 "test_case_ids": split["test_case_ids"],
                 "split_sha256": sha256_file(split_path),
@@ -105,8 +127,17 @@ def test_package_is_deterministic_and_verifiable(tmp_path: Path) -> None:
     second = create_package(root, tmp_path / "second.zip")
     assert first["sha256"] == second["sha256"]
     verified = verify_package(tmp_path / "first.zip")
-    assert verified["submission_id"] == "team-a-v1"
+    assert verified["submission_id"] == "assigned-submission-id"
     assert verified["entry_count"] == 53
+
+
+def test_custom_split_is_packaged_and_verifiable(tmp_path: Path) -> None:
+    root = tmp_path / "result"
+    _result_tree(root, custom=True)
+    created = create_package(root, tmp_path / "custom.zip")
+    verified = verify_package(tmp_path / "custom.zip")
+    assert created["entry_count"] == 54
+    assert verified["entry_count"] == 54
 
 
 def test_package_refuses_overwrite(tmp_path: Path) -> None:

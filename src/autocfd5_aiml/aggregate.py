@@ -242,6 +242,9 @@ def aggregate_cases(
         "split": {
             "split_id": split["split_id"],
             "case_set_id": split["case_set_id"],
+            "official": split.get("official") is not False,
+            "train_case_count": split["train_case_count"],
+            "validation_case_count": split["validation_case_count"],
             "test_case_count": len(case_ids),
             "test_case_ids": list(case_ids),
             "split_sha256": split_sha256,

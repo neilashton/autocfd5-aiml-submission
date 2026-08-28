@@ -10,7 +10,7 @@ import numpy as np
 
 from .aggregate import aggregate_cases
 from .case_evaluator import CASE_RESULT_SCHEMA, evaluate_case
-from .constants import DATASET_REVISION, EVALUATOR_VERSION, SUPPORT_INDEX_SHA256
+from .constants import DATASET_REVISION, EVALUATOR_VERSION, SUPPORT_INDEX_SHA256, contract_root
 from .jsonio import read_json, sha256_file, write_json
 
 ENTRY_SCHEMA = "autocfd5-aiml-entry-v1"
@@ -21,10 +21,11 @@ _ENTRY_KEYS = {
     "schema",
     "schema_version",
     "submission_id",
-    "team_id",
     "method_name",
     "contact_email",
     "split_id",
+    "train_case_ids",
+    "validation_case_ids",
     "test_case_ids",
     "prediction_artifact",
 }
@@ -40,19 +41,47 @@ def _clean_text(value: object, label: str, *, maximum: int = 200) -> str:
     return value.strip()
 
 
+def _case_id_array(value: object, label: str) -> list[str]:
+    if (
+        not isinstance(value, list)
+        or not value
+        or any(
+            not isinstance(case_id, str) or re.fullmatch(r"run_[1-9][0-9]*", case_id) is None
+            for case_id in value
+        )
+        or len(value) != len(set(value))
+    ):
+        raise EntryError(f"{label} must be a non-empty unique array of run_N IDs")
+    return value
+
+
+def _known_dataset_case_ids() -> set[str]:
+    document = read_json(contract_root() / "native-source-pin.json")
+    cases = document.get("cases")
+    if not isinstance(cases, list):
+        raise EntryError("native source pin has no case list")
+    result = {
+        case.get("case_id")
+        for case in cases
+        if isinstance(case, Mapping) and isinstance(case.get("case_id"), str)
+    }
+    if len(result) != len(cases):
+        raise EntryError("native source pin case IDs are invalid")
+    return result
+
+
 def load_entry(path: Path | str) -> dict[str, Any]:
     document = read_json(path)
     if document.get("schema") != ENTRY_SCHEMA or document.get("schema_version") != 1:
         raise EntryError("entry.json schema differs")
-    required = _ENTRY_KEYS - {"prediction_artifact"}
+    required = _ENTRY_KEYS - {"prediction_artifact", "train_case_ids", "validation_case_ids"}
     if set(document) - _ENTRY_KEYS or required - set(document):
         raise EntryError("entry.json contains missing or unknown keys")
-    for key in ("submission_id", "team_id"):
-        value = document.get(key)
-        if not isinstance(value, str) or _SAFE_ID.fullmatch(value) is None:
-            raise EntryError(
-                f"{key} must use lowercase letters, digits, dots, dashes or underscores"
-            )
+    submission_id = document.get("submission_id")
+    if not isinstance(submission_id, str) or _SAFE_ID.fullmatch(submission_id) is None:
+        raise EntryError(
+            "submission_id must use lowercase letters, digits, dots, dashes or underscores"
+        )
     _clean_text(document.get("method_name"), "method_name")
     contact = _clean_text(document.get("contact_email"), "contact_email")
     if contact.count("@") != 1 or contact.startswith("@") or contact.endswith("@"):
@@ -60,14 +89,38 @@ def load_entry(path: Path | str) -> dict[str, Any]:
     split_id = document.get("split_id")
     if not isinstance(split_id, str) or _SAFE_ID.fullmatch(split_id) is None:
         raise EntryError("split_id is invalid")
-    case_ids = document.get("test_case_ids")
-    if (
-        not isinstance(case_ids, list)
-        or not case_ids
-        or any(not isinstance(value, str) for value in case_ids)
-        or len(case_ids) != len(set(case_ids))
-    ):
-        raise EntryError("test_case_ids must be a non-empty unique array")
+    test_case_ids = _case_id_array(document.get("test_case_ids"), "test_case_ids")
+    official_split_path = contract_root() / "splits" / f"{split_id}.json"
+    custom_fields = {"train_case_ids", "validation_case_ids"} & set(document)
+    if official_split_path.is_file():
+        if custom_fields:
+            raise EntryError("official splits must use the frozen train, validation and test membership")
+        official_split = read_json(official_split_path)
+        if test_case_ids != official_split.get("test_case_ids"):
+            raise EntryError("entry test case order or membership differs from the official split")
+    else:
+        if custom_fields != {"train_case_ids", "validation_case_ids"}:
+            raise EntryError(
+                "a custom split must declare train_case_ids and validation_case_ids"
+            )
+        train_case_ids = _case_id_array(document.get("train_case_ids"), "train_case_ids")
+        validation_case_ids = _case_id_array(
+            document.get("validation_case_ids"), "validation_case_ids"
+        )
+        if (
+            set(train_case_ids) & set(validation_case_ids)
+            or set(train_case_ids) & set(test_case_ids)
+            or set(validation_case_ids) & set(test_case_ids)
+        ):
+            raise EntryError("custom split train, validation and test case IDs must be disjoint")
+        unknown = (
+            set(train_case_ids) | set(validation_case_ids) | set(test_case_ids)
+        ) - _known_dataset_case_ids()
+        if unknown:
+            raise EntryError(
+                "custom split contains run IDs outside the pinned dataset: "
+                + ", ".join(sorted(unknown))
+            )
     artifact = document.get("prediction_artifact")
     if artifact is not None:
         if not isinstance(artifact, Mapping):
@@ -84,6 +137,49 @@ def load_entry(path: Path | str) -> dict[str, Any]:
         ):
             raise EntryError("prediction_artifact requires a private URL, size and SHA-256")
     return document
+
+
+def _custom_split_document(entry: dict[str, Any]) -> dict[str, Any]:
+    train_case_ids = entry["train_case_ids"]
+    validation_case_ids = entry["validation_case_ids"]
+    test_case_ids = entry["test_case_ids"]
+    return {
+        "schema": "autocfd5-aiml-drivaerml-split-v1",
+        "schema_version": 1,
+        "dataset_id": "drivaerml",
+        "split_id": entry["split_id"],
+        "split_label": f"Participant custom: {entry['split_id']}",
+        "case_set_id": "participant_custom",
+        "official": False,
+        "train_case_count": len(train_case_ids),
+        "train_case_ids": train_case_ids,
+        "validation_case_count": len(validation_case_ids),
+        "validation_case_ids": validation_case_ids,
+        "test_case_count": len(test_case_ids),
+        "test_case_ids": test_case_ids,
+    }
+
+
+def _resolve_split_path(
+    entry: dict[str, Any],
+    destination: Path,
+    requested: Path | str | None,
+) -> Path:
+    official = contract_root() / "splits" / f"{entry['split_id']}.json"
+    if official.is_file():
+        if requested is not None and Path(requested).expanduser().resolve() != official.resolve():
+            raise EntryError("official splits must use the frozen evaluator declaration")
+        return official
+    if requested is not None:
+        raise EntryError("a custom split must be declared completely in entry.json")
+    document = _custom_split_document(entry)
+    path = destination / "custom-split.json"
+    if path.is_file():
+        if read_json(path) != document:
+            raise EntryError("retained custom-split.json differs from entry.json")
+    else:
+        write_json(path, document, exclusive=True)
+    return path
 
 
 def _profile_chunk(
@@ -130,7 +226,7 @@ def evaluate_entry(
     dataset_root: Path | str,
     support_root: Path | str,
     native_source_pin: Path | str,
-    split_path: Path | str,
+    split_path: Path | str | None,
     scoring_path: Path | str,
     force_truth_path: Path | str,
     maximum_prediction_chunk_rows: int = 1_000_000,
@@ -141,7 +237,11 @@ def evaluate_entry(
     destination = Path(output_root).expanduser().resolve()
     entry_path = source / "entry.json"
     entry = load_entry(entry_path)
-    split = read_json(split_path)
+    if (destination / "result.json").exists():
+        raise EntryError("result.json already exists; choose a new output directory")
+    destination.mkdir(parents=True, exist_ok=True)
+    resolved_split_path = _resolve_split_path(entry, destination, split_path)
+    split = read_json(resolved_split_path)
     split_cases = split.get("test_case_ids")
     if (
         split.get("schema") != "autocfd5-aiml-drivaerml-split-v1"
@@ -149,9 +249,6 @@ def evaluate_entry(
         or entry["test_case_ids"] != split_cases
     ):
         raise EntryError("entry split ID, order or membership differs from the selected split")
-    if (destination / "result.json").exists():
-        raise EntryError("result.json already exists; choose a new output directory")
-    destination.mkdir(parents=True, exist_ok=True)
     work_cases = destination / ".work" / "cases"
     final_cases = destination / "cases"
     work_cases.mkdir(parents=True, exist_ok=True)
@@ -228,12 +325,12 @@ def evaluate_entry(
 
     result = aggregate_cases(
         documents,
-        split_path=split_path,
+        split_path=resolved_split_path,
         force_truth_path=force_truth_path,
         scoring_path=scoring_path,
     )
     result["submission"] = {
-        key: entry[key] for key in ("submission_id", "team_id", "method_name", "contact_email")
+        key: entry[key] for key in ("submission_id", "method_name", "contact_email")
     }
     if "prediction_artifact" in entry:
         result["submission"]["prediction_artifact"] = entry["prediction_artifact"]
