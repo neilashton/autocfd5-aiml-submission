@@ -43,7 +43,7 @@ Use Linux, Python 3.12, NumPy 2.2.6, and VTK 9.5.2. A container is provided beca
 ```bash
 git clone https://github.com/neilashton/autocfd5-aiml-submission.git
 cd autocfd5-aiml-submission
-git checkout evaluator-v1.1.1
+git checkout evaluator-v1.1.2
 python3.12 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip

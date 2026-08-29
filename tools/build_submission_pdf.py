@@ -398,7 +398,7 @@ def draw_content(canvas, doc) -> None:  # noqa: ANN001
     canvas.line(LEFT, 13 * mm, PAGE_WIDTH - RIGHT, 13 * mm)
     canvas.setFillColor(MUTED)
     canvas.setFont("Helvetica", 7)
-    canvas.drawString(LEFT, 8.5 * mm, "Version 1.1.1  |  28 August 2026")
+    canvas.drawString(LEFT, 8.5 * mm, "Version 1.1.2  |  28 August 2026")
     page_label = f"{canvas.getPageNumber():02d}"
     canvas.setFont("Helvetica-Bold", 8)
     canvas.setFillColor(NAVY)
@@ -503,7 +503,7 @@ def cover_story() -> list[Flowable]:
             ),
         ),
         Spacer(1, 20 * mm),
-        para("Version 1.1.1  /  28 August 2026", "cover_meta"),
+        para("Version 1.1.2  /  28 August 2026", "cover_meta"),
         para(
             f'<link href="{REPOSITORY_URL}" color="#22B8CF">{REPOSITORY_URL}</link>',
             "cover_meta",
@@ -538,7 +538,7 @@ def start_here() -> list[Flowable]:
                 tone="orange",
             ),
             Spacer(1, 2),
-            numbered(1, "Clone the evaluator and select the frozen <b>evaluator-v1.1.1</b> release."),
+            numbered(1, "Clone the evaluator and select the frozen <b>evaluator-v1.1.2</b> release."),
             numbered(2, "Fetch the immutable profile-support bundle and the pinned native test files."),
             numbered(3, "Create <b>entry.json</b> and export complete surface and volume prediction chunks for every selected case."),
             numbered(4, "Validate the entry, then evaluate one case while developing your export."),
@@ -668,7 +668,7 @@ def setup_and_inputs() -> list[Flowable]:
                 """
 git clone https://github.com/neilashton/autocfd5-aiml-submission.git
 cd autocfd5-aiml-submission
-git checkout evaluator-v1.1.1
+git checkout evaluator-v1.1.2
 
 python3.12 -m venv .venv
 source .venv/bin/activate
@@ -915,7 +915,7 @@ autocfd5-aiml evaluate-case \\
             para("Optional clean-container check", "h2"),
             code_block(
                 """
-docker build -t autocfd5-aiml:evaluator-v1.1.1 .
+docker build -t autocfd5-aiml:evaluator-v1.1.2 .
 
 # Mount entry, native data, support and result locations explicitly.
 docker run --rm \\
@@ -923,7 +923,7 @@ docker run --rm \\
   -v "/data/drivaerml:/data/drivaerml:ro" \\
   -v "$PWD/support/native-v1:/support/native-v1:ro" \\
   -v "$PWD/output:/results" \\
-  autocfd5-aiml:evaluator-v1.1.1 evaluate-case \\
+  autocfd5-aiml:evaluator-v1.1.2 evaluate-case \\
     --case-id run_11 --dataset-root /data/drivaerml \\
     --support-root /support/native-v1 \\
     --surface-manifest /entries/my-entry/cases/run_11/surface/manifest.json \\
@@ -1162,7 +1162,7 @@ def troubleshooting() -> list[Flowable]:
                 compact=True,
             ),
             para("Final participant checklist", "h2"),
-            bullet("[ ] I used Linux, Python 3.12, and the frozen <b>evaluator-v1.1.1</b> release."),
+            bullet("[ ] I used Linux, Python 3.12, and the frozen <b>evaluator-v1.1.2</b> release."),
             bullet("[ ] The support and native dataset identities verified automatically."),
             bullet("[ ] My <font name='Courier'>entry.json</font> uses the submission ID sent by the AutoCFD organising committee and the official Full split."),
             bullet("[ ] Every selected case has complete native-order surface and volume predictions."),
