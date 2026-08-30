@@ -11,7 +11,7 @@ Entries remain confidential during the workshop embargo. The GitHub repository d
 
 Do not commit an entry, attach it to an issue, or open a pull request with it. Organisers should restrict the Dropbox File Request destination to the small processing group until the embargo ends.
 
-The standard ZIP includes compact metrics, forces, identities, and all profile predictions. If organisers require large native prediction artifacts, place those in private immutable storage and declare `prediction_artifact.private_immutable_url`, `size_bytes`, and `sha256` in `entry.json`. The evaluator records that reference but does not copy the large artifact into the ZIP.
+The standard ZIP includes compact metrics, forces, identities, all profile predictions, and the zero-weight `regional-diagnostics.json` report. It does not include the large native prediction chunks. If organisers require those large artifacts, place them in private immutable storage and declare `prediction_artifact.private_immutable_url`, `size_bytes`, and `sha256` in `entry.json`. The evaluator records that reference but does not copy the large artifact into the ZIP.
 
 Organiser acknowledgements should state the received filename and SHA-256, without circulating results.
 
