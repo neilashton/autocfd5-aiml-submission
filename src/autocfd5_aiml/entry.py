@@ -10,8 +10,20 @@ import numpy as np
 
 from .aggregate import aggregate_cases
 from .case_evaluator import CASE_RESULT_SCHEMA, evaluate_case
-from .constants import DATASET_REVISION, EVALUATOR_VERSION, SUPPORT_INDEX_SHA256, contract_root
+from .constants import (
+    DATASET_REVISION,
+    EVALUATOR_VERSION,
+    REGIONAL_DIAGNOSTICS_CONTRACT_SHA256,
+    SCORING_CONTRACT_SHA256,
+    SUPPORT_INDEX_SHA256,
+    contract_root,
+)
 from .jsonio import read_json, sha256_file, write_json
+from .regional_aggregate import (
+    RegionalAggregateError,
+    aggregate_regional_diagnostics,
+    validate_case_regional_envelope,
+)
 
 ENTRY_SCHEMA = "autocfd5-aiml-entry-v1"
 PROFILE_CHUNK_SCHEMA = "autocfd5-aiml-profile-prediction-chunk-v1"
@@ -235,6 +247,12 @@ def evaluate_entry(
 ) -> dict[str, Any]:
     source = Path(entry_root).expanduser().resolve()
     destination = Path(output_root).expanduser().resolve()
+    try:
+        scoring_sha256 = sha256_file(scoring_path)
+    except OSError as error:
+        raise EntryError("cannot read the approved scoring contract") from error
+    if scoring_sha256 != SCORING_CONTRACT_SHA256:
+        raise EntryError("scoring contract differs from this evaluator build")
     entry_path = source / "entry.json"
     entry = load_entry(entry_path)
     if (destination / "result.json").exists():
@@ -261,10 +279,24 @@ def evaluate_entry(
             case_result = read_json(work_path)
             if (
                 case_result.get("schema") != CASE_RESULT_SCHEMA
+                or case_result.get("schema_version") != 2
                 or case_result.get("case_id") != case_id
                 or case_result.get("status") != "complete"
             ):
                 raise EntryError(f"retained work result is invalid for {case_id}")
+            retained_core = case_result.get("core")
+            if not isinstance(retained_core, Mapping):
+                raise EntryError(f"retained work result has no core result for {case_id}")
+            try:
+                validate_case_regional_envelope(
+                    retained_core.get("report_only_regional_diagnostics", {}),
+                    expected_case_id=case_id,
+                    expected_additive_sums=retained_core.get("additive_sums"),
+                )
+            except RegionalAggregateError as error:
+                raise EntryError(
+                    f"retained work result has invalid regional diagnostics for {case_id}: {error}"
+                ) from error
         else:
             case_root = source / "cases" / case_id
             case_result = evaluate_case(
@@ -286,7 +318,10 @@ def evaluate_entry(
             },
         }
         final_path = final_cases / f"{case_id}.json"
-        if not final_path.exists():
+        if final_path.exists():
+            if read_json(final_path) != compact:
+                raise EntryError(f"retained compact case result differs for {case_id}")
+        else:
             write_json(final_path, compact, exclusive=True)
 
     profile_directory = destination / "profiles"
@@ -323,6 +358,19 @@ def evaluate_entry(
         profile_directory / "index.json", profile_index, exclusive=True
     )
 
+    try:
+        regional_report = aggregate_regional_diagnostics(
+            documents,
+            case_ids=split_cases,
+        )
+    except RegionalAggregateError as error:
+        raise EntryError(f"regional diagnostic aggregation failed: {error}") from error
+    regional_report_identity = write_json(
+        destination / "regional-diagnostics.json",
+        regional_report,
+        exclusive=True,
+    )
+
     result = aggregate_cases(
         documents,
         split_path=resolved_split_path,
@@ -339,7 +387,12 @@ def evaluate_entry(
         "native_source_pin_sha256": sha256_file(native_source_pin),
         "dataset_revision": DATASET_REVISION,
         "profile_support_index_sha256": SUPPORT_INDEX_SHA256,
+        "scoring_contract_sha256": SCORING_CONTRACT_SHA256,
         "profile_prediction_index_sha256": profile_index_identity["sha256"],
+        "regional_diagnostics_contract_sha256": (
+            REGIONAL_DIAGNOSTICS_CONTRACT_SHA256
+        ),
+        "regional_diagnostics_report_sha256": regional_report_identity["sha256"],
     }
     result["evaluator"] = {"version": EVALUATOR_VERSION, "runtime": _runtime()}
     write_json(destination / "result.json", result, exclusive=True)
@@ -355,6 +408,9 @@ def evaluate_entry(
             "all_native_and_prediction_hashes_verified": True,
             "profile_gaps_preserved": True,
             "profile_smoothing_applied": False,
+            "regional_diagnostics_report_only": True,
+            "regional_diagnostics_scoring_weight": 0.0,
+            "official_scoring_contract_changed": False,
         },
         exclusive=True,
     )

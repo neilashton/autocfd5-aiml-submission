@@ -52,6 +52,10 @@ DROPBOX_REQUEST_URL = "https://www.dropbox.com/request/A6cJNTT9egFtYiFICjAi"
 DATASET_REVISION = "7a5c0948ce27be709b1116a3a190f806e7a8f79f"
 SUPPORT_ARCHIVE_SHA256 = "5ebcf744be53016bd158236d1f4af3290ff399b323c0e11a49c37ea9a6c686f6"
 SUPPORT_INDEX_SHA256 = "f47f8c3ed7a56632b0c02a3aec793e4cd823d5d04d5264d00fcd419bf11c0f4f"
+REGIONAL_CONTRACT_SHA256 = "2bfd372817989112642056e4c76cfb418dbdcee445c57ee20ca37ee9ca158583"
+EVALUATOR_TAG = "evaluator-v1.1.3"
+GUIDE_VERSION = "1.1.3"
+GUIDE_DATE = "29 August 2026"
 
 
 def make_styles() -> dict[str, ParagraphStyle]:
@@ -398,7 +402,7 @@ def draw_content(canvas, doc) -> None:  # noqa: ANN001
     canvas.line(LEFT, 13 * mm, PAGE_WIDTH - RIGHT, 13 * mm)
     canvas.setFillColor(MUTED)
     canvas.setFont("Helvetica", 7)
-    canvas.drawString(LEFT, 8.5 * mm, "Version 1.1.2  |  28 August 2026")
+    canvas.drawString(LEFT, 8.5 * mm, f"Version {GUIDE_VERSION}  |  {GUIDE_DATE}")
     page_label = f"{canvas.getPageNumber():02d}"
     canvas.setFont("Helvetica-Bold", 8)
     canvas.setFillColor(NAVY)
@@ -483,7 +487,10 @@ def cover_story() -> list[Flowable]:
             [
                 [para("PUBLIC TOOLING", "cover_kicker"), para("CONFIDENTIAL ENTRIES", "cover_kicker")],
                 [
-                    para("Evaluator code, documentation, and immutable profile support.", "cover_meta"),
+                    para(
+                        "Evaluator code, documentation, immutable profile support, and the report-only regional contract.",
+                        "cover_meta",
+                    ),
                     para("Participant result packages use a private upload-only route.", "cover_meta"),
                 ],
             ],
@@ -503,7 +510,7 @@ def cover_story() -> list[Flowable]:
             ),
         ),
         Spacer(1, 20 * mm),
-        para("Version 1.1.2  /  28 August 2026", "cover_meta"),
+        para(f"Version {GUIDE_VERSION}  /  {GUIDE_DATE}", "cover_meta"),
         para(
             f'<link href="{REPOSITORY_URL}" color="#22B8CF">{REPOSITORY_URL}</link>',
             "cover_meta",
@@ -538,7 +545,7 @@ def start_here() -> list[Flowable]:
                 tone="orange",
             ),
             Spacer(1, 2),
-            numbered(1, "Clone the evaluator and select the frozen <b>evaluator-v1.1.2</b> release."),
+            numbered(1, f"Clone the evaluator and select the frozen <b>{EVALUATOR_TAG}</b> release."),
             numbered(2, "Fetch the immutable profile-support bundle and the pinned native test files."),
             numbered(3, "Create <b>entry.json</b> and export complete surface and volume prediction chunks for every selected case."),
             numbered(4, "Validate the entry, then evaluate one case while developing your export."),
@@ -668,7 +675,7 @@ def setup_and_inputs() -> list[Flowable]:
                 """
 git clone https://github.com/neilashton/autocfd5-aiml-submission.git
 cd autocfd5-aiml-submission
-git checkout evaluator-v1.1.2
+git checkout evaluator-v1.1.3
 
 python3.12 -m venv .venv
 source .venv/bin/activate
@@ -717,6 +724,7 @@ autocfd5-aiml fetch-data \\
                     ("Support release", f'<link href="{SUPPORT_URL}">support-v1</link>'),
                     ("Support ZIP SHA-256", SUPPORT_ARCHIVE_SHA256),
                     ("Support index SHA-256", SUPPORT_INDEX_SHA256),
+                    ("Regional report contract SHA-256", REGIONAL_CONTRACT_SHA256),
                 ]
             ),
             PageBreak(),
@@ -903,6 +911,7 @@ autocfd5-aiml evaluate-case \\
                     ["Numerics", "All prediction values and all written JSON numbers are finite."],
                     ["Forces", "Cd, Cl, and pitch moment are integrated from the predicted native surface fields."],
                     ["Profiles", "All 40 series are produced: 20 scored constant-placement and 20 report-only relative-placement series."],
+                    ["Regional reports", "The same native-cell fields are partitioned into four surface and four volume regions at zero scoring weight."],
                     ["Gaps", "Unsupported intervals remain separate segments; no line is drawn or integrated across them."],
                 ],
                 [38 * mm, CONTENT_WIDTH - 38 * mm],
@@ -915,7 +924,7 @@ autocfd5-aiml evaluate-case \\
             para("Optional clean-container check", "h2"),
             code_block(
                 """
-docker build -t autocfd5-aiml:evaluator-v1.1.2 .
+docker build -t autocfd5-aiml:evaluator-v1.1.3 .
 
 # Mount entry, native data, support and result locations explicitly.
 docker run --rm \\
@@ -923,7 +932,7 @@ docker run --rm \\
   -v "/data/drivaerml:/data/drivaerml:ro" \\
   -v "$PWD/support/native-v1:/support/native-v1:ro" \\
   -v "$PWD/output:/results" \\
-  autocfd5-aiml:evaluator-v1.1.2 evaluate-case \\
+  autocfd5-aiml:evaluator-v1.1.3 evaluate-case \\
     --case-id run_11 --dataset-root /data/drivaerml \\
     --support-root /support/native-v1 \\
     --surface-manifest /entries/my-entry/cases/run_11/surface/manifest.json \\
@@ -968,6 +977,7 @@ autocfd5-aiml evaluate-entry my-entry \\
                 """
 output/assigned-submission-id/
   result.json                 # aggregate metrics and identities
+  regional-diagnostics.json   # zero-weight regional field reports
   provenance.json             # runtime and verification record
   cases/run_N.json            # compact result for each test case
   profiles/index.json         # profile prediction index
@@ -999,6 +1009,31 @@ autocfd5-aiml report \\
                 [39 * mm, 21 * mm, 24 * mm, CONTENT_WIDTH - 84 * mm],
                 compact=True,
             ),
+            para("How to read the regional field report", "h2"),
+            data_table(
+                ["Support", "Four report-only regions", "Reported quantities"],
+                [
+                    [
+                        "Surface",
+                        "Low/high face-centre z, each split by horizontal/other absolute normal orientation",
+                        "Area-weighted pressure and wall-shear relative L2, MAE, RMSE, support and squared-error shares; vector-component contributions",
+                    ],
+                    [
+                        "Volume",
+                        "Underbody-and-wheels, near-body-upper, near-wake, upstream-and-outer",
+                        "Equal-cell pressure and velocity statistics; velocity speed-magnitude and direction diagnostics",
+                    ],
+                ],
+                [25 * mm, 60 * mm, CONTENT_WIDTH - 85 * mm],
+                compact=True,
+            ),
+            callout(
+                "No new model execution is required",
+                "The evaluator derives every regional value from the same complete native-cell predictions "
+                "already required for the scored full-field metrics. The regional report has weight "
+                "<b>0.0</b>, does not add prediction fields, and does not change any official metric or score. "
+                "Its additive sums must reconstruct the unchanged global field sums.",
+            ),
             callout(
                 "Interpret the plots literally",
                 "Adjacent equal velocity values can create visible stair steps because ground truth is "
@@ -1017,7 +1052,7 @@ def scoring() -> list[Flowable]:
         "08 / Scientific score",
         "Nine components, one approved composite",
         "The overall score is on a 0-100 scale. Fields contribute 50%, integrated forces 25%, and "
-        "constant-placement profiles 25%. Relative-placement profiles remain visible diagnostics.",
+        "constant-placement profiles 25%. Relative-placement profiles and regional field reports remain visible zero-weight diagnostics.",
     )
     items.extend(
         [
@@ -1054,6 +1089,7 @@ def scoring() -> list[Flowable]:
             bullet("Velocity is <font name='Courier'>magnitude(UMeanTrim) / 38.889</font>. Cp is <font name='Courier'>2 * pMeanTrim / 38.889^2</font>."),
             bullet("Profile integration follows each scoring coordinate. Every case/profile block is normalized to unit supported length, giving cases and profiles equal weight in global R2."),
             bullet("Integration stops at every segment boundary. No unsupported interval is bridged and no smoothing is applied."),
+            bullet("Four-region surface and volume reports reuse the submitted native-cell fields. They have weight 0.0 and are not consumed by any transformed component or the overall score."),
             callout(
                 "Why the complete split matters",
                 "R2 measures variation across observations. An individual case supplies losses and "
@@ -1072,7 +1108,7 @@ def delivery() -> list[Flowable]:
         "09 / Package and delivery",
         "Verify first; upload privately",
         "The packaged result is compact and deterministic. It contains the scientific outputs, "
-        "profile predictions, entry identity, immutable input hashes, and runtime provenance - not the "
+        "profile predictions, report-only regional diagnostics, entry identity, immutable input hashes, and runtime provenance - not the "
         "large raw native prediction chunks by default.",
     )
     items.extend(
@@ -1157,17 +1193,20 @@ def troubleshooting() -> list[Flowable]:
                     ["result.json already exists", "That output directory is complete. Choose a new output directory for another model version."],
                     ["interrupted full evaluation", "Repeat the identical command with <font name='Courier'>--resume</font>; validated completed case work is retained."],
                     ["profile line appears stepped or has a gap", "This can be scientifically correct: raw samples are unsmoothed, and unsupported intervals are intentionally disconnected."],
+                    ["temporary space is exhausted", "The report-only volume-region pass needs roughly 9 GiB of temporary local space per active case. Point <font name='Courier'>TMPDIR</font> at suitable local scratch or reduce evaluation concurrency."],
+                    ["regional diagnostics do not reconstruct", "Do not edit the report. Re-run with the frozen evaluator and unchanged prediction chunks; all four exhaustive regions must reproduce the global additive field sums."],
                 ],
                 [48 * mm, CONTENT_WIDTH - 48 * mm],
                 compact=True,
             ),
             para("Final participant checklist", "h2"),
-            bullet("[ ] I used Linux, Python 3.12, and the frozen <b>evaluator-v1.1.2</b> release."),
+            bullet(f"[ ] I used Linux, Python 3.12, and the frozen <b>{EVALUATOR_TAG}</b> release."),
             bullet("[ ] The support and native dataset identities verified automatically."),
             bullet("[ ] My <font name='Courier'>entry.json</font> uses the submission ID sent by the AutoCFD organising committee and the official Full split."),
             bullet("[ ] Every selected case has complete native-order surface and volume predictions."),
             bullet("[ ] <font name='Courier'>evaluate-entry</font> completed and <font name='Courier'>result.json</font> reports the exact split as complete."),
             bullet("[ ] I inspected aggregate metrics and at least one local HTML report, including both constant and relative profiles."),
+            bullet("[ ] I confirmed the packaged regional diagnostics are report only, have weight 0.0, and reconstruct the unchanged global field sums."),
             bullet("[ ] <font name='Courier'>verify-package</font> reported the final ZIP as valid."),
             bullet("[ ] I uploaded the ZIP through the AutoCFD Dropbox File Request and retained the original ZIP plus checksum."),
             bullet("[ ] My receipt email contains the exact submission ID, filename, and SHA-256."),

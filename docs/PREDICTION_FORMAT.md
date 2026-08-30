@@ -27,6 +27,8 @@ The volume NPZ fields are:
 - `pMeanTrim`: float32 or float64, shape `(rows,)`;
 - `UMeanTrim`: float32 or float64, shape `(rows, 3)`.
 
+Evaluator v1.1.3 adds report-only surface and volume regional diagnostics, but it does not add a prediction field or change this format. The evaluator derives regional values from these same complete native-cell arrays; participants do not run additional inference or submit region labels, coordinates, masks, or regional files.
+
 Every value must be finite. Raw IDs must exactly cover `[0, total_row_count)` in native order, without gaps or duplicates. Chunks normally contain at most 1,000,000 rows.
 
 Example surface manifest:

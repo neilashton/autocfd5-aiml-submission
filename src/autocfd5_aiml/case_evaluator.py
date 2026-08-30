@@ -4,7 +4,11 @@ from contextlib import closing
 from pathlib import Path
 from typing import Any
 
-from .constants import SUPPORT_INDEX_SHA256
+from .constants import (
+    REGIONAL_DIAGNOSTICS_CONTRACT_SHA256,
+    SUPPORT_INDEX_SHA256,
+    contract_root,
+)
 from .core.evaluator import evaluate_candidate_case
 from .core.native_surface import audit_fixed_surface_area_file, load_native_surface_vtp
 from .core.source import (
@@ -16,7 +20,7 @@ from .core.source import (
 from .jsonio import sha256_file
 from .profiles import evaluate_case_profiles, load_profile_support_case
 
-CASE_RESULT_SCHEMA = "autocfd5-aiml-drivaerml-case-result-v1"
+CASE_RESULT_SCHEMA = "autocfd5-aiml-drivaerml-case-result-v2"
 
 
 class CaseEvaluationError(ValueError):
@@ -43,6 +47,11 @@ def evaluate_case(
         raise CaseEvaluationError("this evaluator build has no bound profile-support release")
     if sha256_file(support_index) != SUPPORT_INDEX_SHA256:
         raise CaseEvaluationError("profile-support index differs from this evaluator build")
+    regional_contract = contract_root() / "regional-diagnostics.json"
+    if sha256_file(regional_contract) != REGIONAL_DIAGNOSTICS_CONTRACT_SHA256:
+        raise CaseEvaluationError(
+            "regional-diagnostics contract differs from this evaluator build"
+        )
 
     surface = load_native_surface_vtp(resolved.boundary_path)
     areas = audit_fixed_surface_area_file(
@@ -93,7 +102,7 @@ def evaluate_case(
     )
     return {
         "schema": CASE_RESULT_SCHEMA,
-        "schema_version": 1,
+        "schema_version": 2,
         "status": "complete",
         "case_id": case_id,
         "core": core_result,

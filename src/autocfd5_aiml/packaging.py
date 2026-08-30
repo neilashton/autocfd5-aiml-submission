@@ -9,15 +9,23 @@ import zipfile
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from .aggregate import RESULT_SCHEMA
+from .aggregate import RESULT_SCHEMA, AggregateError, aggregate_cases
 from .constants import (
     DATASET_REVISION,
     EVALUATOR_VERSION,
+    REGIONAL_DIAGNOSTICS_CONTRACT_SHA256,
+    SCORING_CONTRACT_SHA256,
     SUPPORT_INDEX_SHA256,
     contract_root,
 )
 from .core.evaluator import OFFICIAL_NATIVE_SOURCE_PIN_SHA256
 from .jsonio import canonical_json_bytes, read_json, sha256_bytes, sha256_file
+from .regional_aggregate import (
+    RegionalAggregateError,
+    aggregate_regional_diagnostics,
+    validate_aggregate_regional_diagnostics,
+    validate_case_regional_envelope,
+)
 
 PACKAGE_SCHEMA = "autocfd5-aiml-result-package-v1"
 _ZIP_TIME = (2026, 1, 1, 0, 0, 0)
@@ -219,9 +227,28 @@ def _verify_result(result: dict[str, Any], archive: zipfile.ZipFile) -> None:
     if not isinstance(inputs, dict) or (
         inputs.get("dataset_revision") != DATASET_REVISION
         or inputs.get("profile_support_index_sha256") != SUPPORT_INDEX_SHA256
+        or inputs.get("scoring_contract_sha256") != SCORING_CONTRACT_SHA256
         or inputs.get("native_source_pin_sha256") != OFFICIAL_NATIVE_SOURCE_PIN_SHA256
+        or inputs.get("regional_diagnostics_contract_sha256")
+        != REGIONAL_DIAGNOSTICS_CONTRACT_SHA256
     ):
         raise PackageError("result immutable inputs differ")
+    try:
+        regional_payload = archive.read("regional-diagnostics.json")
+    except KeyError as error:
+        raise PackageError("regional diagnostics report is missing") from error
+    if sha256_bytes(regional_payload) != inputs.get(
+        "regional_diagnostics_report_sha256"
+    ):
+        raise PackageError("regional diagnostics report identity differs")
+    regional_report = read_json_bytes(regional_payload)
+    try:
+        validate_aggregate_regional_diagnostics(
+            regional_report,
+            expected_case_ids=expected_split["test_case_ids"],
+        )
+    except RegionalAggregateError as error:
+        raise PackageError(f"regional diagnostics report is invalid: {error}") from error
     try:
         profile_index_payload = archive.read("profiles/index.json")
     except KeyError as error:
@@ -264,17 +291,44 @@ def _verify_result(result: dict[str, Any], archive: zipfile.ZipFile) -> None:
         chunk_case_ids.extend(declared_case_ids)
     if chunk_case_ids != expected_split["test_case_ids"]:
         raise PackageError("profile prediction case order or membership differs")
+    compact_case_documents: list[dict[str, Any]] = []
     for case_id in expected_split["test_case_ids"]:
         case_path = f"cases/{case_id}.json"
         if case_path not in archive.namelist():
             raise PackageError(f"compact case result is missing: {case_id}")
         case_document = read_json_bytes(archive.read(case_path))
         if (
-            case_document.get("schema") != "autocfd5-aiml-drivaerml-case-result-v1"
+            case_document.get("schema") != "autocfd5-aiml-drivaerml-case-result-v2"
+            or case_document.get("schema_version") != 2
             or case_document.get("case_id") != case_id
             or case_document.get("status") != "complete"
         ):
             raise PackageError(f"compact case result contract differs: {case_id}")
+        core = case_document.get("core")
+        if not isinstance(core, dict):
+            raise PackageError(f"compact case core result is missing: {case_id}")
+        try:
+            validate_case_regional_envelope(
+                core.get("report_only_regional_diagnostics", {}),
+                expected_case_id=case_id,
+                expected_additive_sums=core.get("additive_sums"),
+            )
+        except RegionalAggregateError as error:
+            raise PackageError(
+                f"compact case regional diagnostics are invalid: {case_id}: {error}"
+            ) from error
+        compact_case_documents.append(case_document)
+    try:
+        regenerated_regional_report = aggregate_regional_diagnostics(
+            compact_case_documents,
+            case_ids=expected_split["test_case_ids"],
+        )
+    except RegionalAggregateError as error:
+        raise PackageError(
+            f"regional diagnostics cannot be regenerated from cases: {error}"
+        ) from error
+    if canonical_json_bytes(regenerated_regional_report) != regional_payload:
+        raise PackageError("regional diagnostics report differs from packaged cases")
     metrics = result.get("metric_values")
     required_metrics = {
         "overall_score",
@@ -286,18 +340,59 @@ def _verify_result(result: dict[str, Any], archive: zipfile.ZipFile) -> None:
         "c_pitch_r2",
         "velocity_profile_r2",
         "cp_cut_r2",
+        "surface_pressure_rel_l2",
+        "surface_wall_shear_rel_l2",
+        "volume_pressure_rel_l2",
+        "volume_velocity_rel_l2",
     }
     if (
         not isinstance(metrics, dict)
         or not required_metrics <= set(metrics)
         or any(
-            isinstance(metrics[key], bool)
-            or not isinstance(metrics[key], int | float)
-            or not math.isfinite(float(metrics[key]))
-            for key in required_metrics
+            isinstance(value, bool)
+            or not isinstance(value, int | float)
+            or not math.isfinite(float(value))
+            for value in metrics.values()
         )
     ):
         raise PackageError("result metrics are incomplete or non-finite")
+    expected_scoring_summary = {
+        "field_weight": 0.50,
+        "force_weight": 0.25,
+        "profile_weight": 0.25,
+        "constant_profiles_scored": True,
+        "relative_profiles_weight": 0.0,
+    }
+    if result.get("scoring") != expected_scoring_summary:
+        raise PackageError("result scoring summary differs")
+
+    scoring_path = contract_root() / "scoring.json"
+    force_truth_path = contract_root() / "force_mom_constref_all.csv"
+    try:
+        if official:
+            regenerated = aggregate_cases(
+                compact_case_documents,
+                split_path=split_path,
+                force_truth_path=force_truth_path,
+                scoring_path=scoring_path,
+            )
+        else:
+            with tempfile.NamedTemporaryFile(suffix=".json") as split_file:
+                split_file.write(custom_split_payload)
+                split_file.flush()
+                regenerated = aggregate_cases(
+                    compact_case_documents,
+                    split_path=split_file.name,
+                    force_truth_path=force_truth_path,
+                    scoring_path=scoring_path,
+                )
+    except (AggregateError, OSError) as error:
+        raise PackageError(
+            f"official aggregate cannot be regenerated from compact cases: {error}"
+        ) from error
+    regenerated_metrics = regenerated.get("metric_values")
+    if not isinstance(regenerated_metrics, dict) or metrics != regenerated_metrics:
+        raise PackageError("result official aggregate metrics differ from compact cases")
 
 
 def _verify_custom_split(document: dict[str, Any], split_id: str) -> None:

@@ -16,8 +16,11 @@ The scientific calculation is frozen:
 - raw stair-stepped profile samples retained without smoothing;
 - explicit unsupported intervals retained as separate segments and never joined;
 - Cp scored using arc length, but displayed using physical streamwise `x`;
+- four-region surface and volume reports derived from the submitted native-cell fields, with zero scoring weight.
 
-The metric IDs, numerical outputs, compact `result.json`, and 40-series profile output are compatible with the approved DrivAerML evaluator. Only repository-specific administrative envelopes and identities differ.
+The regional reports reuse the predictions already supplied for the full-field evaluation, so they require no new inference or participant fields. They do not change the prediction format, official metric values, scoring caps, weights, component scores, or overall score. The exact report-only partitions are frozen in [`contract/regional-diagnostics.json`](contract/regional-diagnostics.json), and complete-split results retain their compact aggregate in `regional-diagnostics.json`.
+
+The scored metric IDs, numerical outputs, compact `result.json`, and 40-series profile output remain compatible with the approved DrivAerML evaluator. Only repository-specific administrative envelopes, identities, and report-only diagnostics differ.
 
 ## Official splits
 
@@ -43,7 +46,7 @@ Use Linux, Python 3.12, NumPy 2.2.6, and VTK 9.5.2. A container is provided beca
 ```bash
 git clone https://github.com/neilashton/autocfd5-aiml-submission.git
 cd autocfd5-aiml-submission
-git checkout evaluator-v1.1.2
+git checkout evaluator-v1.1.3
 python3.12 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
@@ -67,7 +70,7 @@ autocfd5-aiml evaluate-entry my-entry \
   --resume
 ```
 
-One case can be checked during development with `evaluate-case`. It provides field errors, forces, and profile losses, but an official R2 or overall score requires every case in the selected test split.
+One case can be checked during development with `evaluate-case`. It provides field errors, forces, profile losses, and zero-weight regional reports, but an official R2 or overall score requires every case in the selected test split.
 
 Inspect any evaluated case locally:
 
@@ -94,10 +97,14 @@ Questions can be sent to `neil@neilashton.co.uk` or `astridwalle@cfdsolutions.ne
 
 - Dataset: `neashton/drivaerml`
 - Dataset revision: `7a5c0948ce27be709b1116a3a190f806e7a8f79f`
+- Retained force truth: pinned dataset `force_mom_constref_all.csv`, SHA-256 `4e9e003da38ccdcacad359451079888361eae221d3c8dad7fd5682250d257865`
 - Profile support release: `support-v1`
 - Profile support ZIP SHA-256: `5ebcf744be53016bd158236d1f4af3290ff399b323c0e11a49c37ea9a6c686f6`
 - Profile support index SHA-256: `f47f8c3ed7a56632b0c02a3aec793e4cd823d5d04d5264d00fcd419bf11c0f4f`
+- Report-only regional diagnostics contract SHA-256: `2bfd372817989112642056e4c76cfb418dbdcee445c57ee20ca37ee9ca158583`
 
 The native dataset is very large. `autocfd5-aiml fetch-data --split-id full --destination /data/drivaerml --dry-run` shows the exact pinned files before downloading them. For a custom split, use `autocfd5-aiml fetch-data --entry-root my-entry --destination /data/drivaerml --dry-run`.
+
+The v1.1.3 volume-region pass uses temporary raw geometry spools and processes topology in blocks of at most one million cells. Allow roughly 9 GiB of local temporary space per concurrently evaluated case; set `TMPDIR` to suitable local scratch when `/tmp` is too small. Temporary files are removed on both success and failure.
 
 Further detail is in [the scientific method](docs/SCIENTIFIC_METHOD.md) and [the organiser checklist](docs/ORGANISER_CHECKLIST.md).

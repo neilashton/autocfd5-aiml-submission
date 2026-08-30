@@ -17,6 +17,14 @@ The four field errors are complete-case relative L2 percentages, macro-averaged 
 
 Forces are integrated from the predicted native surface fields. Drag R2 has weight 0.15, lift R2 has weight 0.05, and pitch-moment R2 has weight 0.05. Pitch truth is `(Clf - Clr) / 2`, matching the approved constant-reference force table.
 
+## Regional field reports
+
+The evaluator also partitions the same full-field predictions and native truth into four surface regions and four volume regions. These are report-only diagnostics with weight `0.0`: they require no new inference or prediction fields and do not alter any official metric, cap, weight, component score, or overall score.
+
+Surface polygons are partitioned at face-centre `z = 0.75 m` and `|n_z| = 0.5`, producing low/high and horizontal/other regions. Volume cells use native `vtkCellCenters` parametric centres in raw-cell order. The volume regions are underbody-and-wheels, near-body-upper, near-wake, and the exhaustive upstream-and-outer complement. These are reproducible geometric bins, not audited OpenFOAM patch labels; in particular, “underbody-and-wheels” is a coarse envelope rather than an exclusive floor-boundary-layer mask. Exact coordinate definitions, half-open bounds, region order, and reconstruction requirements are frozen in [`contract/regional-diagnostics.json`](../contract/regional-diagnostics.json).
+
+Each report retains regional additive sums and verifies that the mutually exclusive regions reconstruct the unchanged global field reduction. Relative L2, MAE, RMSE, support share, and squared-error share are reported; vector fields additionally retain component contributions, and volume velocity includes speed-magnitude and direction diagnostics. Complete-split summaries distinguish macro case means from pooled sufficient-statistic reductions and are written to `regional-diagnostics.json` alongside `result.json`.
+
 ## Profiles
 
 Every case has 40 series:

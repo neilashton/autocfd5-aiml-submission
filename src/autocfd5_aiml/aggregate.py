@@ -6,6 +6,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from .constants import SCORING_CONTRACT_SHA256
 from .jsonio import read_json, sha256_file
 from .profiles import r2_from_block_statistics
 from .scores import composite_component_group_scores, composite_overall_score
@@ -108,6 +109,12 @@ def aggregate_cases(
     force_truth_path: Path | str,
     scoring_path: Path | str,
 ) -> dict[str, Any]:
+    try:
+        scoring_sha256 = sha256_file(scoring_path)
+    except OSError as error:
+        raise AggregateError("cannot read the approved scoring contract") from error
+    if scoring_sha256 != SCORING_CONTRACT_SHA256:
+        raise AggregateError("scoring contract differs from this evaluator build")
     split, case_ids, split_sha256 = _split(split_path)
     if len(case_documents) != len(case_ids):
         raise AggregateError("case result count differs from the selected test split")

@@ -3,10 +3,24 @@ from __future__ import annotations
 import math
 from pathlib import Path
 
-from autocfd5_aiml.constants import DATASET_REVISION, contract_root
+import pytest
+
+from autocfd5_aiml.aggregate import (
+    FORCE_TRUTH_SHA256,
+    AggregateError,
+    aggregate_cases,
+    load_force_truth,
+)
+from autocfd5_aiml.constants import (
+    DATASET_REVISION,
+    REGIONAL_DIAGNOSTICS_CONTRACT_SHA256,
+    SCORING_CONTRACT_SHA256,
+    contract_root,
+)
 from autocfd5_aiml.core.evaluator import OFFICIAL_NATIVE_SOURCE_PIN_SHA256
+from autocfd5_aiml.core.regional_diagnostics import regional_contract_projection
 from autocfd5_aiml.core.source import load_native_source_pin
-from autocfd5_aiml.jsonio import read_json, sha256_file
+from autocfd5_aiml.jsonio import read_json, sha256_file, write_json
 from autocfd5_aiml.scores import composite_component_group_scores, composite_overall_score
 
 
@@ -30,7 +44,9 @@ def test_native_source_pin_and_splits_are_closed() -> None:
 
 
 def test_approved_component_weights_and_groups() -> None:
-    scoring = read_json(contract_root() / "scoring.json")
+    scoring_path = contract_root() / "scoring.json"
+    assert sha256_file(scoring_path) == SCORING_CONTRACT_SHA256
+    scoring = read_json(scoring_path)
     overall = scoring["overall_score_composite"]
     assert [row["weight"] for row in overall["components"]] == [
         0.15,
@@ -59,6 +75,44 @@ def test_approved_component_weights_and_groups() -> None:
     assert groups == {"field_score": 50.0, "force_score": 50.0, "diagnostic_score": 50.0}
     assert composite_overall_score(values, overall) == 50.0
     assert scoring["profile_rules"]["report_only"]["weight"] == 0.0
+
+
+def test_force_truth_is_retained_for_offline_aggregate_verification() -> None:
+    force_truth_path = contract_root() / "force_mom_constref_all.csv"
+    assert force_truth_path.stat().st_size == 33_947
+    assert sha256_file(force_truth_path) == FORCE_TRUTH_SHA256
+    assert len(load_force_truth(force_truth_path)) == 484
+
+
+def test_aggregate_rejects_modified_scoring_contract(tmp_path: Path) -> None:
+    scoring = read_json(contract_root() / "scoring.json")
+    scoring["overall_score_composite"]["components"][0]["weight"] = 0.16
+    modified = tmp_path / "scoring.json"
+    write_json(modified, scoring)
+    with pytest.raises(AggregateError, match="scoring contract"):
+        aggregate_cases(
+            [],
+            split_path=contract_root() / "splits" / "tiny.json",
+            force_truth_path=tmp_path / "unused.csv",
+            scoring_path=modified,
+        )
+
+
+def test_regional_diagnostics_contract_is_report_only() -> None:
+    contract_path = contract_root() / "regional-diagnostics.json"
+    assert sha256_file(contract_path) == REGIONAL_DIAGNOSTICS_CONTRACT_SHA256
+    contract = read_json(contract_path)
+    assert contract["status"] == "approved_report_only"
+    assert contract["scoring"] == {
+        "weight": 0.0,
+        "affects_official_metric_values": False,
+        "affects_component_or_overall_scores": False,
+        "changes_prediction_format": False,
+        "requires_new_inference": False,
+    }
+    assert len(contract["surface"]["region_order"]) == 4
+    assert len(contract["volume"]["region_order"]) == 4
+    assert contract["executable_projection"] == regional_contract_projection()
 
 
 def test_repository_root_is_this_checkout() -> None:
