@@ -39,7 +39,10 @@ def arithmetic_mean(values: Mapping[str, float], metric_ids: Sequence[str]) -> f
 
 
 def _transformed_components(
-    values: Mapping[str, float], declaration: Mapping[str, Any]
+    values: Mapping[str, float],
+    declaration: Mapping[str, Any],
+    *,
+    unavailable_metric_ids: Sequence[str] = (),
 ) -> dict[str, tuple[float, float]]:
     """Return ``metric_id -> (weight, transformed component score)``."""
 
@@ -48,6 +51,12 @@ def _transformed_components(
     components = declaration.get("components")
     if not isinstance(components, Sequence) or isinstance(components, (str, bytes)) or not components:
         raise ValueError("overall-score composite requires at least one component")
+
+    unavailable = frozenset(unavailable_metric_ids)
+    if len(unavailable) != len(unavailable_metric_ids) or any(
+        not isinstance(metric_id, str) or not metric_id for metric_id in unavailable
+    ):
+        raise ValueError("unavailable component metric IDs must be non-empty and unique")
 
     result: dict[str, tuple[float, float]] = {}
     for component in components:
@@ -59,6 +68,13 @@ def _transformed_components(
         weight = float(component.get("weight"))
         if not math.isfinite(weight) or weight < 0.0:
             raise ValueError("overall-score component weights must be finite and non-negative")
+        if metric_id in unavailable:
+            if metric_id in values:
+                raise ValueError(
+                    f"unavailable component {metric_id!r} must not have a fabricated metric value"
+                )
+            result[metric_id] = (weight, 0.0)
+            continue
         source_value = float(values[metric_id])
         if not math.isfinite(source_value):
             raise ValueError("overall-score component values must be finite")
@@ -85,6 +101,9 @@ def _transformed_components(
         else:
             raise ValueError("unsupported overall-score component transform")
         result[metric_id] = (weight, component_score)
+    unknown = unavailable - set(result)
+    if unknown:
+        raise ValueError(f"unknown unavailable component metric IDs: {sorted(unknown)}")
     return result
 
 
@@ -98,7 +117,12 @@ def _require_normalized_weights(components: Mapping[str, tuple[float, float]]) -
         raise ValueError("overall-score component weights must sum to one")
 
 
-def composite_overall_score(values: Mapping[str, float], declaration: Mapping[str, Any]) -> float:
+def composite_overall_score(
+    values: Mapping[str, float],
+    declaration: Mapping[str, Any],
+    *,
+    unavailable_metric_ids: Sequence[str] = (),
+) -> float:
     """Evaluate a dataset-declared weighted composite score.
 
     ``bounded_error`` components convert an error ``e`` with published cap
@@ -111,15 +135,43 @@ def composite_overall_score(values: Mapping[str, float], declaration: Mapping[st
     one.
     """
 
-    components = _transformed_components(values, declaration)
+    components = _transformed_components(
+        values,
+        declaration,
+        unavailable_metric_ids=unavailable_metric_ids,
+    )
     _require_normalized_weights(components)
     return sum(weight * score for weight, score in components.values())
+
+
+def composite_transformed_component_scores(
+    values: Mapping[str, float],
+    declaration: Mapping[str, Any],
+    *,
+    unavailable_metric_ids: Sequence[str] = (),
+) -> dict[str, float]:
+    """Return each fixed-weight component's transformed 0-100 score.
+
+    An explicitly unavailable component is assigned zero without inventing a
+    scientific metric value. Component weights remain fixed and are never
+    renormalized around unavailable predictions.
+    """
+
+    components = _transformed_components(
+        values,
+        declaration,
+        unavailable_metric_ids=unavailable_metric_ids,
+    )
+    _require_normalized_weights(components)
+    return {metric_id: score for metric_id, (_, score) in components.items()}
 
 
 def composite_component_group_scores(
     values: Mapping[str, float],
     overall_declaration: Mapping[str, Any],
     group_declaration: Mapping[str, Any],
+    *,
+    unavailable_metric_ids: Sequence[str] = (),
 ) -> dict[str, float]:
     """Evaluate normalized intermediate scores from overall-score components.
 
@@ -135,7 +187,11 @@ def composite_component_group_scores(
     if not isinstance(groups, Sequence) or isinstance(groups, (str, bytes)) or not groups:
         raise ValueError("component-score declaration requires at least one group")
 
-    components = _transformed_components(values, overall_declaration)
+    components = _transformed_components(
+        values,
+        overall_declaration,
+        unavailable_metric_ids=unavailable_metric_ids,
+    )
     _require_normalized_weights(components)
     results: dict[str, float] = {}
     grouped_component_ids: list[str] = []

@@ -13,15 +13,21 @@ from autocfd5_aiml.aggregate import (
 )
 from autocfd5_aiml.constants import (
     DATASET_REVISION,
+    PREDICTION_SCOPE_SURFACE_ONLY,
     REGIONAL_DIAGNOSTICS_CONTRACT_SHA256,
     SCORING_CONTRACT_SHA256,
+    SURFACE_ONLY_UNAVAILABLE_COMPONENTS,
     contract_root,
 )
 from autocfd5_aiml.core.evaluator import OFFICIAL_NATIVE_SOURCE_PIN_SHA256
 from autocfd5_aiml.core.regional_diagnostics import regional_contract_projection
 from autocfd5_aiml.core.source import load_native_source_pin
 from autocfd5_aiml.jsonio import read_json, sha256_file, write_json
-from autocfd5_aiml.scores import composite_component_group_scores, composite_overall_score
+from autocfd5_aiml.scores import (
+    composite_component_group_scores,
+    composite_overall_score,
+    composite_transformed_component_scores,
+)
 
 
 def test_native_source_pin_and_splits_are_closed() -> None:
@@ -75,6 +81,52 @@ def test_approved_component_weights_and_groups() -> None:
     assert groups == {"field_score": 50.0, "force_score": 50.0, "diagnostic_score": 50.0}
     assert composite_overall_score(values, overall) == 50.0
     assert scoring["profile_rules"]["report_only"]["weight"] == 0.0
+
+
+def test_surface_only_components_are_zero_without_weight_renormalization() -> None:
+    scoring = read_json(contract_root() / "scoring.json")
+    policy = scoring["prediction_scope_policy"][PREDICTION_SCOPE_SURFACE_ONLY]
+    unavailable = tuple(sorted(SURFACE_ONLY_UNAVAILABLE_COMPONENTS))
+    assert policy["unavailable_component_metric_ids"] == [
+        "volume_velocity_rel_l2",
+        "volume_pressure_rel_l2",
+        "velocity_profile_r2",
+    ]
+    assert policy["component_weights_renormalized"] is False
+    assert policy["maximum_overall_score"] == 60.0
+
+    # Every submitted component is perfect. The unavailable 40% remains zero,
+    # so the overall score reaches exactly 60 rather than being renormalized.
+    values = {
+        "surface_pressure_rel_l2": 0.0,
+        "surface_wall_shear_rel_l2": 0.0,
+        "cd_r2": 1.0,
+        "cl_r2": 1.0,
+        "c_pitch_r2": 1.0,
+        "cp_cut_r2": 1.0,
+    }
+    components = composite_transformed_component_scores(
+        values,
+        scoring["overall_score_composite"],
+        unavailable_metric_ids=unavailable,
+    )
+    assert all(components[metric_id] == 0.0 for metric_id in unavailable)
+    assert (
+        composite_overall_score(
+            values,
+            scoring["overall_score_composite"],
+            unavailable_metric_ids=unavailable,
+        )
+        == 60.0
+    )
+
+    fabricated = {**values, "volume_pressure_rel_l2": 0.0}
+    with pytest.raises(ValueError, match="must not have a fabricated metric value"):
+        composite_overall_score(
+            fabricated,
+            scoring["overall_score_composite"],
+            unavailable_metric_ids=unavailable,
+        )
 
 
 def test_force_truth_is_retained_for_offline_aggregate_verification() -> None:

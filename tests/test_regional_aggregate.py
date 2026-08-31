@@ -5,6 +5,10 @@ import copy
 import numpy as np
 import pytest
 
+from autocfd5_aiml.constants import (
+    PREDICTION_SCOPE_FULL,
+    PREDICTION_SCOPE_SURFACE_ONLY,
+)
 from autocfd5_aiml.core.accumulators import field_chunk_statistics
 from autocfd5_aiml.core.regional_diagnostics import (
     SURFACE_REGION_DEFINITION,
@@ -174,6 +178,7 @@ def _case(case_id: str, scale: float) -> dict:
     envelope = build_case_regional_envelope(
         case_id=case_id,
         case_report=case_report,
+        prediction_scope=PREDICTION_SCOPE_FULL,
         volume_geometry_audit={
             "method": "synthetic_test",
             "entity_count": len(codes),
@@ -189,9 +194,50 @@ def _case(case_id: str, scale: float) -> dict:
     )
     return {
         "case_id": case_id,
+        "prediction_scope": PREDICTION_SCOPE_FULL,
         "core": {
+            "schema": "autocfd5-aiml-drivaerml-case-evaluation-v4",
+            "schema_version": 4,
+            "prediction_scope": PREDICTION_SCOPE_FULL,
             "additive_sums": additive_sums,
             "metric_values": metric_values,
+            "report_only_regional_diagnostics": envelope,
+        },
+    }
+
+
+def _surface_case(case_id: str, scale: float) -> dict:
+    document = _case(case_id, scale)
+    core = document["core"]
+    full_envelope = core["report_only_regional_diagnostics"]
+    surface_report = copy.deepcopy(full_envelope["case_report"])
+    surface_report["supports"].pop(VOLUME_REGION_DEFINITION.definition_id)
+    surface_sums = {
+        field_id: sums
+        for field_id, sums in core["additive_sums"].items()
+        if field_id.startswith("surface_")
+    }
+    surface_metrics = {
+        metric_id: value
+        for metric_id, value in core["metric_values"].items()
+        if metric_id.startswith("surface_")
+    }
+    envelope = build_case_regional_envelope(
+        case_id=case_id,
+        case_report=surface_report,
+        prediction_scope=PREDICTION_SCOPE_SURFACE_ONLY,
+        volume_geometry_audit=None,
+        official_additive_sums=surface_sums,
+    )
+    return {
+        "case_id": case_id,
+        "prediction_scope": PREDICTION_SCOPE_SURFACE_ONLY,
+        "core": {
+            "schema": "autocfd5-aiml-drivaerml-case-evaluation-v4",
+            "schema_version": 4,
+            "prediction_scope": PREDICTION_SCOPE_SURFACE_ONLY,
+            "additive_sums": surface_sums,
+            "metric_values": surface_metrics,
             "report_only_regional_diagnostics": envelope,
         },
     }
@@ -212,6 +258,21 @@ def test_two_case_regional_aggregate_is_complete_and_zero_weight() -> None:
     assert len(velocity["regions"]) == 4
     assert velocity["regions"][0]["velocity"]["speed_magnitude"]["rmse"] > 0.0
     assert velocity["validation"]["pooled_is_report_only_not_official_case_reduction"]
+
+
+def test_surface_only_regional_aggregate_contains_only_surface_support() -> None:
+    documents = [_surface_case("run_1", 1.0), _surface_case("run_2", 2.0)]
+    report = aggregate_regional_diagnostics(
+        documents, case_ids=("run_1", "run_2")
+    )
+    validate_aggregate_regional_diagnostics(
+        report, expected_case_ids=("run_1", "run_2")
+    )
+    assert report["prediction_scope"] == PREDICTION_SCOPE_SURFACE_ONLY
+    assert set(report["supports"]) == {
+        SURFACE_REGION_DEFINITION.definition_id
+    }
+    assert report["scoring"]["weight"] == 0.0
 
 
 def test_case_and_aggregate_validation_reject_incomplete_or_scored_reports() -> None:

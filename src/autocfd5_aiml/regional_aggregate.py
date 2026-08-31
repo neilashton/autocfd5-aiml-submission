@@ -6,7 +6,12 @@ import math
 import re
 from collections.abc import Mapping, Sequence
 
-from .constants import REGIONAL_DIAGNOSTICS_CONTRACT_SHA256
+from .constants import (
+    PREDICTION_SCOPE_FULL,
+    PREDICTION_SCOPE_SURFACE_ONLY,
+    PREDICTION_SCOPES,
+    REGIONAL_DIAGNOSTICS_CONTRACT_SHA256,
+)
 from .core.regional_diagnostics import (
     REGION_DEFINITIONS,
     SURFACE_REGION_DEFINITION,
@@ -17,8 +22,8 @@ from .core.regional_diagnostics import (
     validate_regional_report,
 )
 
-CASE_REGIONAL_ENVELOPE_SCHEMA = "autocfd5-aiml-regional-case-envelope-v1"
-AGGREGATE_REGIONAL_REPORT_SCHEMA = "autocfd5-aiml-regional-aggregate-v1"
+CASE_REGIONAL_ENVELOPE_SCHEMA = "autocfd5-aiml-regional-case-envelope-v2"
+AGGREGATE_REGIONAL_REPORT_SCHEMA = "autocfd5-aiml-regional-aggregate-v2"
 _SHA256_RE = re.compile(r"[0-9a-f]{64}\Z")
 _CASE_RE = re.compile(r"run_[1-9][0-9]*\Z")
 _REQUIRED_FIELDS = {
@@ -30,6 +35,12 @@ _REQUIRED_FIELDS = {
         "volume_pressure",
         "volume_velocity",
     },
+}
+_SCOPE_DEFINITION_IDS = {
+    PREDICTION_SCOPE_FULL: tuple(_REQUIRED_FIELDS),
+    PREDICTION_SCOPE_SURFACE_ONLY: (
+        SURFACE_REGION_DEFINITION.definition_id,
+    ),
 }
 _SCORING_BOUNDARY = {
     "role": "report_only",
@@ -87,19 +98,25 @@ def build_case_regional_envelope(
     *,
     case_id: str,
     case_report: Mapping[str, object],
-    volume_geometry_audit: Mapping[str, object],
+    prediction_scope: str,
+    volume_geometry_audit: Mapping[str, object] | None,
     official_additive_sums: Mapping[str, object],
 ) -> dict[str, object]:
     """Bind one strict case report to its immutable contract and geometry audit."""
 
     envelope: dict[str, object] = {
         "schema": CASE_REGIONAL_ENVELOPE_SCHEMA,
-        "schema_version": 1,
+        "schema_version": 2,
         "status": "complete_report_only",
         "contract_sha256": REGIONAL_DIAGNOSTICS_CONTRACT_SHA256,
         "scoring": dict(_SCORING_BOUNDARY),
+        "prediction_scope": prediction_scope,
         "case_report": dict(case_report),
-        "volume_geometry_audit": dict(volume_geometry_audit),
+        "volume_geometry_audit": (
+            dict(volume_geometry_audit)
+            if volume_geometry_audit is not None
+            else None
+        ),
     }
     validate_case_regional_envelope(
         envelope,
@@ -123,19 +140,24 @@ def validate_case_regional_envelope(
         "status",
         "contract_sha256",
         "scoring",
+        "prediction_scope",
         "case_report",
         "volume_geometry_audit",
     }:
         raise RegionalAggregateError("regional case envelope keys differ")
     if (
         envelope.get("schema") != CASE_REGIONAL_ENVELOPE_SCHEMA
-        or envelope.get("schema_version") != 1
+        or envelope.get("schema_version") != 2
         or envelope.get("status") != "complete_report_only"
         or envelope.get("contract_sha256")
         != REGIONAL_DIAGNOSTICS_CONTRACT_SHA256
         or envelope.get("scoring") != _SCORING_BOUNDARY
     ):
         raise RegionalAggregateError("regional case envelope identity differs")
+    prediction_scope = envelope.get("prediction_scope")
+    if prediction_scope not in PREDICTION_SCOPES:
+        raise RegionalAggregateError("regional case prediction scope differs")
+    definition_ids = _SCOPE_DEFINITION_IDS[str(prediction_scope)]
     case_report = envelope.get("case_report")
     if not isinstance(case_report, Mapping):
         raise RegionalAggregateError("regional case report is absent")
@@ -143,30 +165,31 @@ def validate_case_regional_envelope(
         validate_regional_report(
             case_report,
             expected_case_id=expected_case_id,
-            required_definition_ids=(
-                SURFACE_REGION_DEFINITION.definition_id,
-                VOLUME_REGION_DEFINITION.definition_id,
-            ),
+            required_definition_ids=definition_ids,
         )
     except RegionalDiagnosticError as error:
         raise RegionalAggregateError(str(error)) from error
     case_id = case_report.get("case_id")
     if not isinstance(case_id, str) or _CASE_RE.fullmatch(case_id) is None:
         raise RegionalAggregateError("regional case ID is invalid")
-    for definition_id, expected_fields in _REQUIRED_FIELDS.items():
+    for definition_id in definition_ids:
+        expected_fields = _REQUIRED_FIELDS[definition_id]
         support = case_report["supports"][definition_id]
         if set(support["fields"]) != expected_fields:
             raise RegionalAggregateError(
                 f"{case_id} regional field membership differs for {definition_id}"
             )
     if expected_additive_sums is not None:
-        expected_fields = set().union(*_REQUIRED_FIELDS.values())
+        expected_fields = set().union(
+            *(_REQUIRED_FIELDS[definition_id] for definition_id in definition_ids)
+        )
         if not isinstance(expected_additive_sums, Mapping) or set(
             expected_additive_sums
         ) != expected_fields:
             raise RegionalAggregateError("official additive field membership differs")
         try:
-            for definition_id, field_ids in _REQUIRED_FIELDS.items():
+            for definition_id in definition_ids:
+                field_ids = _REQUIRED_FIELDS[definition_id]
                 support = case_report["supports"][definition_id]
                 for field_id in field_ids:
                     sums = expected_additive_sums[field_id]
@@ -185,6 +208,13 @@ def validate_case_regional_envelope(
                 "regional sums differ from official scored additive sums"
             ) from error
     audit = envelope.get("volume_geometry_audit")
+    if prediction_scope == PREDICTION_SCOPE_SURFACE_ONLY:
+        if audit is not None:
+            raise RegionalAggregateError(
+                "surface-only regional report must not contain a volume geometry audit"
+            )
+        canonical_json_bytes(envelope)
+        return
     if not isinstance(audit, Mapping):
         raise RegionalAggregateError("regional volume geometry audit is absent")
     entity_count = audit.get("entity_count")
@@ -503,9 +533,15 @@ def aggregate_regional_diagnostics(
             expected_additive_sums=core.get("additive_sums"),
         )
         envelopes.append(envelope)
+    prediction_scopes = {envelope.get("prediction_scope") for envelope in envelopes}
+    if len(prediction_scopes) != 1:
+        raise RegionalAggregateError("regional cases use different prediction scopes")
+    prediction_scope = str(prediction_scopes.pop())
+    definition_ids = _SCOPE_DEFINITION_IDS[prediction_scope]
     reports = [envelope["case_report"] for envelope in envelopes]
     supports: dict[str, object] = {}
-    for definition_id, required_fields in _REQUIRED_FIELDS.items():
+    for definition_id in definition_ids:
+        required_fields = _REQUIRED_FIELDS[definition_id]
         definition = REGION_DEFINITIONS[definition_id]
         case_supports = [report["supports"][definition_id] for report in reports]
         fields = {
@@ -530,9 +566,10 @@ def aggregate_regional_diagnostics(
         }
     aggregate: dict[str, object] = {
         "schema": AGGREGATE_REGIONAL_REPORT_SCHEMA,
-        "schema_version": 1,
+        "schema_version": 2,
         "status": "complete_report_only",
         "dataset_id": "drivaerml",
+        "prediction_scope": prediction_scope,
         "contract_sha256": REGIONAL_DIAGNOSTICS_CONTRACT_SHA256,
         "scoring": dict(_SCORING_BOUNDARY),
         "case_count": len(expected),
@@ -559,6 +596,7 @@ def validate_aggregate_regional_diagnostics(
         "schema_version",
         "status",
         "dataset_id",
+        "prediction_scope",
         "contract_sha256",
         "scoring",
         "case_count",
@@ -569,7 +607,7 @@ def validate_aggregate_regional_diagnostics(
         raise RegionalAggregateError("regional aggregate keys differ")
     if (
         report.get("schema") != AGGREGATE_REGIONAL_REPORT_SCHEMA
-        or report.get("schema_version") != 1
+        or report.get("schema_version") != 2
         or report.get("status") != "complete_report_only"
         or report.get("dataset_id") != "drivaerml"
         or report.get("contract_sha256")
@@ -577,6 +615,10 @@ def validate_aggregate_regional_diagnostics(
         or report.get("scoring") != _SCORING_BOUNDARY
     ):
         raise RegionalAggregateError("regional aggregate identity differs")
+    prediction_scope = report.get("prediction_scope")
+    if prediction_scope not in PREDICTION_SCOPES:
+        raise RegionalAggregateError("regional aggregate prediction scope differs")
+    definition_ids = _SCOPE_DEFINITION_IDS[str(prediction_scope)]
     case_ids = report.get("case_ids")
     if (
         not isinstance(case_ids, list)
@@ -588,9 +630,10 @@ def validate_aggregate_regional_diagnostics(
     ):
         raise RegionalAggregateError("regional aggregate case coverage differs")
     supports = report.get("supports")
-    if not isinstance(supports, Mapping) or set(supports) != set(_REQUIRED_FIELDS):
+    if not isinstance(supports, Mapping) or set(supports) != set(definition_ids):
         raise RegionalAggregateError("regional aggregate support membership differs")
-    for definition_id, expected_fields in _REQUIRED_FIELDS.items():
+    for definition_id in definition_ids:
+        expected_fields = _REQUIRED_FIELDS[definition_id]
         definition = REGION_DEFINITIONS[definition_id]
         support = supports[definition_id]
         if not isinstance(support, Mapping) or set(support) != {

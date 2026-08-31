@@ -18,6 +18,7 @@ from typing import BinaryIO, Iterator
 
 import numpy as np
 
+from ..constants import PREDICTION_SCOPE_FULL, PREDICTION_SCOPE_SURFACE_ONLY
 from ..regional_aggregate import RegionalAggregateError, build_case_regional_envelope
 from .accumulators import (
     DrivAerAccumulatorError,
@@ -67,7 +68,7 @@ from .volume_regions import (
 )
 
 
-CANDIDATE_EVIDENCE_SCHEMA = "autocfd5-aiml-drivaerml-case-evaluation-v3"
+CANDIDATE_EVIDENCE_SCHEMA = "autocfd5-aiml-drivaerml-case-evaluation-v4"
 CANDIDATE_STATUS = "complete_submitter_evaluation"
 DEFAULT_MAX_PREDICTION_CHUNK_ROWS = 1_000_000
 DEFAULT_ENCODED_CHUNK_BYTES = 8 * 1024 * 1024
@@ -141,10 +142,11 @@ class CandidateCaseEvaluation:
     def to_json(self) -> dict[str, object]:
         return {
             "schema": CANDIDATE_EVIDENCE_SCHEMA,
-            "schema_version": 3,
+            "schema_version": 4,
             "status": CANDIDATE_STATUS,
             "official_submission": False,
             "case_id": self.case_id,
+            "prediction_scope": PREDICTION_SCOPE_FULL,
             "source": {
                 "native_source_pin_sha256": self.source_pin_sha256,
                 "repository_id": self.repository_id,
@@ -181,6 +183,76 @@ class CandidateCaseEvaluation:
                     "raw_cell_id_start": 0,
                     "raw_cell_id_stop": self.volume_entity_count,
                     "complete_gap_free_duplicate_free": True,
+                },
+            },
+            "metric_values": self.metric_values,
+            "metric_sufficient_statistics": self.metric_sufficient_statistics,
+            "additive_sums": self.additive_sums,
+            "force_coefficients": self.force_coefficients,
+            "report_only_regional_diagnostics": self.report_only_regional_diagnostics,
+            "execution": self.execution,
+        }
+
+
+@dataclass(frozen=True)
+class SurfaceOnlyCaseEvaluation:
+    """Complete native-surface evidence with volume components unavailable."""
+
+    case_id: str
+    source_pin_sha256: str
+    repository_id: str
+    repository_revision: str
+    boundary_sha256: str
+    surface_native_audit: dict[str, object]
+    surface_area_audit: dict[str, object]
+    surface_prediction_manifest_sha256: str
+    surface_prediction_chunk_sha256: tuple[str, ...]
+    surface_entity_count: int
+    surface_chunk_count: int
+    metric_values: dict[str, float]
+    metric_sufficient_statistics: dict[str, dict[str, float | int | str]]
+    additive_sums: dict[str, dict[str, dict[str, float | int]]]
+    force_coefficients: dict[str, float | int | list[float]]
+    report_only_regional_diagnostics: dict[str, object]
+    execution: dict[str, int]
+
+    def to_json(self) -> dict[str, object]:
+        return {
+            "schema": CANDIDATE_EVIDENCE_SCHEMA,
+            "schema_version": 4,
+            "status": CANDIDATE_STATUS,
+            "official_submission": False,
+            "case_id": self.case_id,
+            "prediction_scope": PREDICTION_SCOPE_SURFACE_ONLY,
+            "source": {
+                "native_source_pin_sha256": self.source_pin_sha256,
+                "repository_id": self.repository_id,
+                "repository_revision": self.repository_revision,
+                "boundary_sha256": self.boundary_sha256,
+                "surface_native": self.surface_native_audit,
+                "surface_area": self.surface_area_audit,
+                "volume_native": {
+                    "status": "not_loaded_surface_only",
+                    "scientific_metric_values_fabricated": False,
+                },
+            },
+            "prediction_inputs": {
+                "surface_native_cells": {
+                    "manifest_sha256": self.surface_prediction_manifest_sha256,
+                    "chunk_sha256": list(self.surface_prediction_chunk_sha256),
+                    "chunk_count": self.surface_chunk_count,
+                    "entity_count": self.surface_entity_count,
+                }
+            },
+            "coverage": {
+                "surface": {
+                    "raw_cell_id_start": 0,
+                    "raw_cell_id_stop": self.surface_entity_count,
+                    "complete_gap_free_duplicate_free": True,
+                },
+                "volume": {
+                    "status": "not_submitted_surface_only",
+                    "component_score": 0.0,
                 },
             },
             "metric_values": self.metric_values,
@@ -727,14 +799,12 @@ def _evaluate_volume_field(
     )
 
 
-def _validate_case_sources(
+def _validate_surface_sources(
     pin: NativeSourcePin,
     case: NativeCaseRecord,
     surface: NativeSurface,
     areas: FixedSurfaceAreas,
-    volume_stream: SegmentedReader,
-    vtk_index: VTKXMLIndex,
-) -> int:
+) -> None:
     areas.assert_source_unchanged(context="before candidate evaluation")
     if surface.boundary_sha256 != case.boundary.sha256:
         raise DrivAerCandidateEvaluatorError(
@@ -753,6 +823,20 @@ def _validate_case_sources(
         raise DrivAerCandidateEvaluatorError(
             "fixed surface areas differ from the native-source case binding"
         )
+    if pin.case(case.case_id) is not case:
+        # NativeSourcePin.case returns the exact immutable record held by the pin.
+        raise DrivAerCandidateEvaluatorError("case record is not owned by the source pin")
+
+
+def _validate_case_sources(
+    pin: NativeSourcePin,
+    case: NativeCaseRecord,
+    surface: NativeSurface,
+    areas: FixedSurfaceAreas,
+    volume_stream: SegmentedReader,
+    vtk_index: VTKXMLIndex,
+) -> int:
+    _validate_surface_sources(pin, case, surface, areas)
     if not isinstance(volume_stream, SegmentedReader):
         raise DrivAerCandidateEvaluatorError(
             "volume_stream must come from open_verified_multipart or open_verified_monolithic"
@@ -783,9 +867,6 @@ def _validate_case_sources(
     volume_count = vtk_index.pieces[0].number_of_cells
     if volume_count < 1:
         raise DrivAerCandidateEvaluatorError("native volume contains no cells")
-    if pin.case(case.case_id) is not case:
-        # NativeSourcePin.case returns the exact immutable record held by the pin.
-        raise DrivAerCandidateEvaluatorError("case record is not owned by the source pin")
     return volume_count
 
 
@@ -971,6 +1052,7 @@ def evaluate_candidate_case(
         regional_envelope = build_case_regional_envelope(
             case_id=case_id,
             case_report=regional_case_report,
+            prediction_scope=PREDICTION_SCOPE_FULL,
             volume_geometry_audit=volume_region_support.audit,
             official_additive_sums=official_additive_sums,
         )
@@ -1121,15 +1203,185 @@ def evaluate_candidate_case(
     )
 
 
+def evaluate_surface_only_candidate_case(
+    *,
+    case_id: str,
+    native_source_pin: NativeSourcePin,
+    native_surface: NativeSurface,
+    fixed_surface_areas: FixedSurfaceAreas,
+    surface_prediction_manifest: PredictionChunkManifest | Path | str,
+    maximum_prediction_chunk_rows: int = DEFAULT_MAX_PREDICTION_CHUNK_ROWS,
+    hash_chunk_bytes: int = DEFAULT_HASH_CHUNK_BYTES,
+    validation_block_rows: int = DEFAULT_VALIDATION_BLOCK_ROWS,
+    source_contract: NativeSourceContract = OFFICIAL_NATIVE_SOURCE_CONTRACT,
+) -> SurfaceOnlyCaseEvaluation:
+    """Evaluate one exact surface-only case without reading native volume data."""
+
+    if not isinstance(native_source_pin, NativeSourcePin):
+        raise DrivAerCandidateEvaluatorError(
+            "native_source_pin must be a validated NativeSourcePin"
+        )
+    source_pin_sha256 = validate_native_source_contract(
+        native_source_pin, source_contract
+    )
+    case = native_source_pin.case(case_id)
+    maximum_rows = _positive_integer(
+        maximum_prediction_chunk_rows, "maximum_prediction_chunk_rows"
+    )
+    hash_rows = _positive_integer(hash_chunk_bytes, "hash_chunk_bytes")
+    validation_rows = _positive_integer(
+        validation_block_rows, "validation_block_rows"
+    )
+    _validate_surface_sources(
+        native_source_pin,
+        case,
+        native_surface,
+        fixed_surface_areas,
+    )
+    surface_manifest = _manifest(surface_prediction_manifest)
+    surface_manifest_sha256 = surface_manifest.sha256
+    _validate_manifest_binding(
+        surface_manifest,
+        case_id=case_id,
+        support_id="surface_native_cells",
+        expected_count=native_surface.polygon_count,
+        maximum_chunk_rows=maximum_rows,
+    )
+
+    try:
+        (
+            surface_pressure,
+            surface_shear,
+            coefficients,
+            surface_geometry_area_audit,
+            surface_regional_support,
+        ) = _evaluate_surface_chunks(
+            surface_manifest,
+            native_surface,
+            fixed_surface_areas,
+            hash_chunk_bytes=hash_rows,
+            validation_block_rows=validation_rows,
+        )
+    except (
+        DrivAerAccumulatorError,
+        DrivAerSurfaceForceError,
+        PredictionChunkError,
+        RegionalDiagnosticError,
+    ) as error:
+        raise DrivAerCandidateEvaluatorError(str(error)) from error
+
+    statistics = {
+        "surface_pressure": surface_pressure,
+        "surface_wall_shear": surface_shear,
+    }
+    official_additive_sums = {
+        name: _additive_sums(value)
+        for name, value in statistics.items()
+    }
+    try:
+        regional_case_report = build_regional_report(
+            case_id=case_id,
+            supports={
+                SURFACE_REGION_DEFINITION.definition_id: surface_regional_support,
+            },
+        )
+        regional_envelope = build_case_regional_envelope(
+            case_id=case_id,
+            case_report=regional_case_report,
+            prediction_scope=PREDICTION_SCOPE_SURFACE_ONLY,
+            volume_geometry_audit=None,
+            official_additive_sums=official_additive_sums,
+        )
+    except (RegionalAggregateError, RegionalDiagnosticError) as error:
+        raise DrivAerCandidateEvaluatorError(str(error)) from error
+
+    try:
+        metric_values: dict[str, float] = {}
+        metric_values.update(
+            _field_metric_values(
+                "surface_pressure", surface_pressure, physical_first=True
+            )
+        )
+        metric_values.update(
+            _field_metric_values(
+                "surface_wall_shear", surface_shear, physical_first=True
+            )
+        )
+        sufficient_statistics: dict[
+            str, dict[str, float | int | str]
+        ] = {}
+        sufficient_statistics.update(
+            _relative_l2_evidence(
+                "surface_pressure_rel_l2",
+                surface_pressure,
+                physical_first=True,
+                physical_dataset_weighting="surface_face_area",
+                uniform_dataset_weighting="surface_entities_equal",
+            )
+        )
+        sufficient_statistics.update(
+            _relative_l2_evidence(
+                "surface_wall_shear_rel_l2",
+                surface_shear,
+                physical_first=True,
+                physical_dataset_weighting="surface_face_area",
+                uniform_dataset_weighting="surface_entities_equal",
+            )
+        )
+    except DrivAerAccumulatorError as error:
+        raise DrivAerCandidateEvaluatorError(str(error)) from error
+
+    if _sha256_file(native_source_pin.source_path) != source_pin_sha256:
+        raise DrivAerCandidateEvaluatorError(
+            "native-source pin changed during candidate evaluation"
+        )
+    fixed_surface_areas.assert_source_unchanged(
+        context="while candidate surface metrics were reduced"
+    )
+    if _sha256_file(surface_manifest.path) != surface_manifest_sha256:
+        raise DrivAerCandidateEvaluatorError(
+            "surface prediction manifest changed during candidate evaluation"
+        )
+
+    return SurfaceOnlyCaseEvaluation(
+        case_id=case_id,
+        source_pin_sha256=source_pin_sha256,
+        repository_id=native_source_pin.repository_id,
+        repository_revision=native_source_pin.repository_revision,
+        boundary_sha256=native_surface.boundary_sha256,
+        surface_native_audit=native_surface.audit_record(),
+        surface_area_audit={
+            **fixed_surface_areas.audit_record(),
+            "native_geometry_order_audit": surface_geometry_area_audit,
+        },
+        surface_prediction_manifest_sha256=surface_manifest_sha256,
+        surface_prediction_chunk_sha256=tuple(
+            descriptor.sha256 for descriptor in surface_manifest.chunks
+        ),
+        surface_entity_count=native_surface.polygon_count,
+        surface_chunk_count=len(surface_manifest.chunks),
+        metric_values=metric_values,
+        metric_sufficient_statistics=sufficient_statistics,
+        additive_sums=official_additive_sums,
+        force_coefficients=coefficients,
+        report_only_regional_diagnostics=regional_envelope,
+        execution={
+            "maximum_prediction_chunk_rows": maximum_rows,
+            "hash_chunk_bytes": hash_rows,
+            "validation_block_rows": validation_rows,
+        },
+    )
+
+
 def write_candidate_case_evidence(
-    evaluation: CandidateCaseEvaluation,
+    evaluation: CandidateCaseEvaluation | SurfaceOnlyCaseEvaluation,
     path: Path | str,
 ) -> dict[str, object]:
     """Atomically write deterministic compact JSON and return its identity."""
 
-    if not isinstance(evaluation, CandidateCaseEvaluation):
+    if not isinstance(evaluation, CandidateCaseEvaluation | SurfaceOnlyCaseEvaluation):
         raise DrivAerCandidateEvaluatorError(
-            "evaluation must be a CandidateCaseEvaluation"
+            "evaluation must be a supported candidate case evaluation"
         )
     destination = Path(path)
     if destination.suffix.lower() != ".json":
@@ -1175,11 +1427,13 @@ __all__ = [
     "DEFAULT_ENCODED_CHUNK_BYTES",
     "DEFAULT_MAX_PREDICTION_CHUNK_ROWS",
     "CandidateCaseEvaluation",
+    "SurfaceOnlyCaseEvaluation",
     "DrivAerCandidateEvaluatorError",
     "NativeSourceContract",
     "OFFICIAL_NATIVE_SOURCE_CONTRACT",
     "OFFICIAL_NATIVE_SOURCE_PIN_SHA256",
     "evaluate_candidate_case",
+    "evaluate_surface_only_candidate_case",
     "validate_native_source_contract",
     "write_candidate_case_evidence",
 ]

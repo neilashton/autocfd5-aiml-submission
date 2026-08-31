@@ -53,9 +53,9 @@ DATASET_REVISION = "7a5c0948ce27be709b1116a3a190f806e7a8f79f"
 SUPPORT_ARCHIVE_SHA256 = "5ebcf744be53016bd158236d1f4af3290ff399b323c0e11a49c37ea9a6c686f6"
 SUPPORT_INDEX_SHA256 = "f47f8c3ed7a56632b0c02a3aec793e4cd823d5d04d5264d00fcd419bf11c0f4f"
 REGIONAL_CONTRACT_SHA256 = "2bfd372817989112642056e4c76cfb418dbdcee445c57ee20ca37ee9ca158583"
-EVALUATOR_TAG = "evaluator-v1.1.3"
-GUIDE_VERSION = "1.1.3"
-GUIDE_DATE = "29 August 2026"
+EVALUATOR_TAG = "evaluator-v1.1.4"
+GUIDE_VERSION = "1.1.4"
+GUIDE_DATE = "31 August 2026"
 
 
 def make_styles() -> dict[str, ParagraphStyle]:
@@ -478,8 +478,9 @@ def cover_story() -> list[Flowable]:
         AccentRule(58 * mm, ORANGE),
         Spacer(1, 12 * mm),
         para(
-            "A reproducible route to export complete native-cell surface and volume predictions, "
-            "run the approved evaluator, inspect results, and deliver a verified entry.",
+            "A reproducible route to export complete native-cell surface predictions, optionally "
+            "include complete volume predictions, run the approved evaluator, inspect results, "
+            "and deliver a verified entry.",
             "cover_subtitle",
         ),
         Spacer(1, 17 * mm),
@@ -532,22 +533,41 @@ def start_here() -> list[Flowable]:
     items.extend(
         [
             callout(
-                "Mandatory: complete full-field predictions on both native meshes",
-                "For <b>every selected test case</b>, export a prediction for <b>every cell</b> of both "
-                "the pinned surface VTP and the pinned volume VTU. The surface requires "
-                "<font name='Courier'>pMeanTrim</font> and "
-                "<font name='Courier'>wallShearStressMeanTrim</font>; the volume requires "
-                "<font name='Courier'>pMeanTrim</font> and <font name='Courier'>UMeanTrim</font>.<br/><br/>"
-                "Inference may run in chunks or on another representation, but the final export must "
-                "map back to every native <font name='Courier'>raw_cell_id</font> exactly once, with no "
-                "missing or duplicate cells. Surface-only, volume-only, sampled, or profiles-only "
-                "results are not accepted; the evaluator stops before scoring them.",
+                "Mandatory in both scopes: the complete native surface",
+                "For <b>every selected test case</b>, export <font name='Courier'>pMeanTrim</font> and "
+                "<font name='Courier'>wallShearStressMeanTrim</font> for <b>every cell</b> of the pinned "
+                "surface VTP. Inference may run in chunks or on another representation, but the final "
+                "surface export must map back to every native <font name='Courier'>raw_cell_id</font> "
+                "exactly once, with no missing or duplicate cells. A sampled or partial surface is not accepted.",
                 tone="orange",
+            ),
+            data_table(
+                ["prediction_scope", "Required predictions", "Maximum overall score"],
+                [
+                    [
+                        "surface_and_volume",
+                        "Complete native surface plus complete native-volume pMeanTrim and UMeanTrim. This is the legacy default.",
+                        "100 / 100",
+                    ],
+                    [
+                        "surface_only",
+                        "Complete native surface; omit volume predictions. Volume fields and velocity profiles receive zero component points.",
+                        "60 / 100",
+                    ],
+                ],
+                [40 * mm, CONTENT_WIDTH - 75 * mm, 35 * mm],
+                compact=True,
+            ),
+            para(
+                "Surface-only entries do not use dummy volume fields. Their unavailable scientific "
+                "metric values are absent, the three unavailable component scores are exactly zero, "
+                "and the approved weights are not renormalized.",
+                "small",
             ),
             Spacer(1, 2),
             numbered(1, f"Clone the evaluator and select the frozen <b>{EVALUATOR_TAG}</b> release."),
             numbered(2, "Fetch the immutable profile-support bundle and the pinned native test files."),
-            numbered(3, "Create <b>entry.json</b> and export complete surface and volume prediction chunks for every selected case."),
+            numbered(3, "Choose one prediction scope in <b>entry.json</b> and export every required native cell for every selected case."),
             numbered(4, "Validate the entry, then evaluate one case while developing your export."),
             numbered(5, "Evaluate the official <b>full</b> split as the minimum common comparison."),
             numbered(6, "Inspect <b>result.json</b> and selected local HTML profile reports."),
@@ -582,12 +602,6 @@ def start_here() -> list[Flowable]:
             bullet("One verified <b>.zip</b> produced by <font name='Courier'>autocfd5-aiml package</font>."),
             bullet("A short email containing the committee-issued submission ID, filename, and exact SHA-256."),
             bullet("No raw native prediction files unless the organisers explicitly request a separately hosted immutable artifact."),
-            callout(
-                "Questions",
-                'Contact <link href="mailto:neil@neilashton.co.uk">neil@neilashton.co.uk</link> or '
-                '<link href="mailto:astridwalle@cfdsolutions.net">astridwalle@cfdsolutions.net</link>, '
-                "the AutoCFD5 AI/ML TFG organisers.",
-            ),
             PageBreak(),
         ]
     )
@@ -675,7 +689,7 @@ def setup_and_inputs() -> list[Flowable]:
                 """
 git clone https://github.com/neilashton/autocfd5-aiml-submission.git
 cd autocfd5-aiml-submission
-git checkout evaluator-v1.1.3
+git checkout evaluator-v1.1.4
 
 python3.12 -m venv .venv
 source .venv/bin/activate
@@ -701,18 +715,24 @@ autocfd5-aiml fetch-support --destination support/native-v1
                 """
 autocfd5-aiml fetch-data \\
   --split-id full \\
+  --prediction-scope surface_and_volume \\
   --destination /data/drivaerml \\
   --dry-run
 
 # Remove --dry-run only when the location and required storage are ready.
 autocfd5-aiml fetch-data \\
   --split-id full \\
+  --prediction-scope surface_and_volume \\
   --destination /data/drivaerml
 """
             ),
             para(
                 "The native files are very large. The dry run lists the exact pinned files and sizes. "
-                "The final dataset root must contain <font name='Courier'>force_mom_constref_all.csv</font> "
+                "Replace <font name='Courier'>surface_and_volume</font> with "
+                "<font name='Courier'>surface_only</font> to omit native volume parts, or use "
+                "<font name='Courier'>--entry-root my-entry</font> after creating the entry so the "
+                "command reads its exact cases and scope. The final dataset root must contain "
+                "<font name='Courier'>force_mom_constref_all.csv</font> "
                 "and each selected <font name='Courier'>run_N/</font> directory in the downloaded layout.",
                 "small",
             ),
@@ -758,6 +778,7 @@ cp -R examples/entry my-entry
                     ["method_name", "Human-readable method name, 1-200 characters."],
                     ["contact_email", "Email monitored by the participant."],
                     ["split_id", "Keep <font name='Courier'>full</font> for the requested baseline."],
+                    ["prediction_scope", "Choose <font name='Courier'>surface_and_volume</font> or <font name='Courier'>surface_only</font>. State it explicitly; omission retains legacy full-field behaviour."],
                     ["test_case_ids", "Copy the example exactly. Membership and order are both checked."],
                     ["prediction_artifact", "Optional; only for an organiser-requested private immutable raw artifact."],
                 ],
@@ -774,6 +795,7 @@ cp -R examples/entry my-entry
   "method_name": "Method display name",
   "contact_email": "participant@example.org",
   "split_id": "full",
+  "prediction_scope": "surface_and_volume",
   "test_case_ids": [ ...copy the complete example array exactly... ]
 }
 """
@@ -790,7 +812,8 @@ cp -R examples/entry my-entry
                 "<font name='Courier'>validate-entry</font> checks metadata and split declarations. "
                 "For an official split it requires the frozen test membership and order; for a custom "
                 "split it requires complete, disjoint, known train, validation, and test IDs. The full "
-                "evaluation also requires valid surface and volume prediction manifests for every test case.",
+                "evaluation requires a valid complete surface manifest for every test case and, only "
+                "for <font name='Courier'>surface_and_volume</font>, a valid complete volume manifest.",
             ),
             PageBreak(),
         ]
@@ -802,8 +825,9 @@ def prediction_format() -> list[Flowable]:
     items = section_title(
         "05 / Predictions",
         "Export native cells, without reordering",
-        "Each case contains separate surface and volume manifests plus one or more compressed NPZ "
-        "chunks. Raw cell IDs restore native order and must cover the complete native cell range exactly.",
+        "Every case contains a complete surface manifest plus one or more compressed NPZ chunks. "
+        "Full-field entries also contain a complete volume manifest. Raw cell IDs restore native "
+        "order and must cover every supplied native-cell range exactly.",
     )
     items.extend(
         [
@@ -816,11 +840,19 @@ my-entry/
       surface/
         manifest.json
         chunks/chunk-00000.npz
-      volume/
+      volume/                 # surface_and_volume only
         manifest.json
         chunks/chunk-00000.npz
     ...one directory for every case in the selected split...
 """
+            ),
+            callout(
+                "Surface-only directory rule",
+                "With <font name='Courier'>prediction_scope = surface_only</font>, stop after the "
+                "surface chunks and omit <font name='Courier'>volume/</font>. Do not create zero or "
+                "dummy volume arrays. The evaluator records volume pressure, volume velocity, and "
+                "velocity profiles as unavailable and gives those components zero points.",
+                tone="orange",
             ),
             para("Required NPZ arrays", "h2"),
             data_table(
@@ -829,9 +861,9 @@ my-entry/
                     ["Surface", "raw_cell_id", "int64", "<font name='Courier'>(rows,)</font>; native polygon ID"],
                     ["Surface", "pMeanTrim", "float32/64", "<font name='Courier'>(rows,)</font>; mean pressure"],
                     ["Surface", "wallShearStressMeanTrim", "float32/64", "<font name='Courier'>(rows, 3)</font>; wall-shear vector"],
-                    ["Volume", "raw_cell_id", "int64", "<font name='Courier'>(rows,)</font>; native volume-cell ID"],
-                    ["Volume", "pMeanTrim", "float32/64", "<font name='Courier'>(rows,)</font>; mean pressure"],
-                    ["Volume", "UMeanTrim", "float32/64", "<font name='Courier'>(rows, 3)</font>; mean velocity vector"],
+                    ["Volume (full only)", "raw_cell_id", "int64", "<font name='Courier'>(rows,)</font>; native volume-cell ID"],
+                    ["Volume (full only)", "pMeanTrim", "float32/64", "<font name='Courier'>(rows,)</font>; mean pressure"],
+                    ["Volume (full only)", "UMeanTrim", "float32/64", "<font name='Courier'>(rows, 3)</font>; mean velocity vector"],
                 ],
                 [24 * mm, 46 * mm, 25 * mm, CONTENT_WIDTH - 95 * mm],
                 compact=True,
@@ -842,29 +874,13 @@ my-entry/
             bullet("Each chunk declares file, SHA-256, row count, and half-open raw-ID range."),
             bullet("Values must be finite; unknown or missing keys fail validation."),
             bullet("IDs must cover <font name='Courier'>[0, total_row_count)</font> once, with no gaps or duplicates."),
+            bullet("The complete surface is mandatory in both scopes; a sampled or partial surface fails validation."),
             bullet("Use at most 1,000,000 rows per chunk unless the organisers publish another limit."),
-            para("Manifest pattern", "h2"),
-            code_block(
-                """
-{
-  "format": "drivaerml-native-prediction-chunks-candidate",
-  "format_version": 1,
-  "artifact_role": "local_evaluator_input_not_official_submission_artifact",
-  "case_id": "run_11",
-  "support_id": "surface_native_cells",
-  "association": "CellData",
-  "total_row_count": 7792715,
-  "field_components": {"pMeanTrim": 1, "wallShearStressMeanTrim": 3},
-  "chunks": [ ...complete chunk records with real hashes... ]
-}
-"""
-            ),
-            callout(
-                "Do not interpolate onto a convenient grid",
-                "The field and force calculation uses the native DrivAerML entities. Preserve native "
-                "cell identity and export predictions at that resolution. The evaluator verifies each "
-                "NPZ hash before reading arrays and fails if an input changes during evaluation.",
-                tone="orange",
+            para(
+                "Copy the closed manifest structure from the repository's Native prediction format "
+                "document. Preserve native resolution rather than interpolating to a convenient grid; "
+                "the evaluator hashes each NPZ before use and fails if an input changes.",
+                "small",
             ),
             PageBreak(),
         ]
@@ -895,10 +911,22 @@ autocfd5-aiml evaluate-case \\
   --output output/dev/run_11.json
 """
             ),
+            para("For a surface-only development check", "h2"),
+            code_block(
+                """
+autocfd5-aiml evaluate-case \\
+  --case-id run_11 \\
+  --prediction-scope surface_only \\
+  --dataset-root /data/drivaerml \\
+  --support-root support/native-v1 \\
+  --surface-manifest my-entry/cases/run_11/surface/manifest.json \\
+  --output output/dev/run_11-surface-only.json
+"""
+            ),
             callout(
                 "A one-case result is diagnostic, not an official result",
-                "It contains the complete four field errors, integrated force coefficients, and "
-                "profile loss statistics for that case. Force and profile R2 require variation across "
+                "It contains every metric available in the declared scope, integrated force coefficients, "
+                "and available profile loss statistics for that case. Force and profile R2 require variation across "
                 "the complete test split, so a single case cannot produce official component or overall scores.",
                 tone="orange",
             ),
@@ -906,12 +934,12 @@ autocfd5-aiml evaluate-case \\
             data_table(
                 ["Check", "Expected outcome"],
                 [
-                    ["Native identities", "Every boundary, area, and volume part matches its pinned size and SHA-256."],
-                    ["Prediction coverage", "Surface and volume IDs are complete, unique, and in the declared ranges."],
+                    ["Native identities", "Every required boundary, area, and full-field volume part matches its pinned size and SHA-256."],
+                    ["Prediction coverage", "Surface IDs are complete and unique; full-field entries also have complete unique volume IDs."],
                     ["Numerics", "All prediction values and all written JSON numbers are finite."],
                     ["Forces", "Cd, Cl, and pitch moment are integrated from the predicted native surface fields."],
-                    ["Profiles", "All 40 series are produced: 20 scored constant-placement and 20 report-only relative-placement series."],
-                    ["Regional reports", "The same native-cell fields are partitioned into four surface and four volume regions at zero scoring weight."],
+                    ["Profiles", "Forty identities are retained. Surface-only entries mark all 32 velocity rows unavailable without prediction values; Cp remains available."],
+                    ["Regional reports", "Surface regions are always present; volume regions appear only for full-field entries. All have zero scoring weight."],
                     ["Gaps", "Unsupported intervals remain separate segments; no line is drawn or integrated across them."],
                 ],
                 [38 * mm, CONTENT_WIDTH - 38 * mm],
@@ -920,25 +948,6 @@ autocfd5-aiml evaluate-case \\
             para(
                 "The evaluator refuses to overwrite a case result. This is intentional. Use a new output "
                 "filename after changing predictions, so every test result remains attributable to one input set.",
-            ),
-            para("Optional clean-container check", "h2"),
-            code_block(
-                """
-docker build -t autocfd5-aiml:evaluator-v1.1.3 .
-
-# Mount entry, native data, support and result locations explicitly.
-docker run --rm \\
-  -v "$PWD/my-entry:/entries/my-entry:ro" \\
-  -v "/data/drivaerml:/data/drivaerml:ro" \\
-  -v "$PWD/support/native-v1:/support/native-v1:ro" \\
-  -v "$PWD/output:/results" \\
-  autocfd5-aiml:evaluator-v1.1.3 evaluate-case \\
-    --case-id run_11 --dataset-root /data/drivaerml \\
-    --support-root /support/native-v1 \\
-    --surface-manifest /entries/my-entry/cases/run_11/surface/manifest.json \\
-    --volume-manifest /entries/my-entry/cases/run_11/volume/manifest.json \\
-    --output /results/dev/run_11-container.json
-"""
             ),
             PageBreak(),
         ]
@@ -951,7 +960,8 @@ def full_evaluation() -> list[Flowable]:
         "07 / Full evaluation",
         "Run the complete split and inspect it",
         "Official R2 values and the composite score are calculated only after every case in the "
-        "selected test split has completed. The requested Full baseline contains 50 test cases.",
+        "selected test split has completed. The requested Full baseline contains 50 test cases. "
+        "The declared prediction scope applies consistently to every case in that entry.",
     )
     items.extend(
         [
@@ -971,6 +981,13 @@ autocfd5-aiml evaluate-entry my-entry \\
                 "After <font name='Courier'>result.json</font> exists, that output is complete and immutable; use a new "
                 "output directory for another model version.",
                 "small",
+            ),
+            callout(
+                "Existing full-field inference is reusable",
+                "If you already produced complete v1.1.2 or v1.1.3 surface and volume prediction "
+                "chunks, do not run model inference again. Keep those manifests and NPZ files, "
+                "set <font name='Courier'>prediction_scope = surface_and_volume</font>, and rerun "
+                "the v1.1.4 evaluator into a fresh output directory.",
             ),
             para("Output layout", "h2"),
             code_block(
@@ -1001,45 +1018,13 @@ autocfd5-aiml report \\
             data_table(
                 ["Series", "Count/case", "Role", "Display and scoring behaviour"],
                 [
-                    ["Constant velocity", "16", "Scored", "Raw U/U_inf samples; no smoothing; gaps remain separate."],
-                    ["Relative velocity", "16", "Report only", "Same numerical treatment; zero composite weight."],
+                    ["Constant velocity", "16", "Scored if volume", "Raw U/U_inf samples for full entries; explicitly unavailable for surface-only."],
+                    ["Relative velocity", "16", "Report only", "Full entries use the same numerical treatment; surface-only contains no prediction values."],
                     ["Constant continuous Cp", "4", "Scored", "Shown against physical x; integrated against arc length."],
                     ["Relative Cp", "4", "Report only", "Two aliases and two moving placements; zero composite weight."],
                 ],
                 [39 * mm, 21 * mm, 24 * mm, CONTENT_WIDTH - 84 * mm],
                 compact=True,
-            ),
-            para("How to read the regional field report", "h2"),
-            data_table(
-                ["Support", "Four report-only regions", "Reported quantities"],
-                [
-                    [
-                        "Surface",
-                        "Low/high face-centre z, each split by horizontal/other absolute normal orientation",
-                        "Area-weighted pressure and wall-shear relative L2, MAE, RMSE, support and squared-error shares; vector-component contributions",
-                    ],
-                    [
-                        "Volume",
-                        "Underbody-and-wheels, near-body-upper, near-wake, upstream-and-outer",
-                        "Equal-cell pressure and velocity statistics; velocity speed-magnitude and direction diagnostics",
-                    ],
-                ],
-                [25 * mm, 60 * mm, CONTENT_WIDTH - 85 * mm],
-                compact=True,
-            ),
-            callout(
-                "No new model execution is required",
-                "The evaluator derives every regional value from the same complete native-cell predictions "
-                "already required for the scored full-field metrics. The regional report has weight "
-                "<b>0.0</b>, does not add prediction fields, and does not change any official metric or score. "
-                "Its additive sums must reconstruct the unchanged global field sums.",
-            ),
-            callout(
-                "Interpret the plots literally",
-                "Adjacent equal velocity values can create visible stair steps because ground truth is "
-                "retained at its native sampled resolution. Unsupported regions are real gaps and must "
-                "not be joined. Cp uses physical streamwise x for familiar visual comparison, while its "
-                "score remains based on the supplied arc-length coordinate.",
             ),
             PageBreak(),
         ]
@@ -1051,8 +1036,9 @@ def scoring() -> list[Flowable]:
     items = section_title(
         "08 / Scientific score",
         "Nine components, one approved composite",
-        "The overall score is on a 0-100 scale. Fields contribute 50%, integrated forces 25%, and "
-        "constant-placement profiles 25%. Relative-placement profiles and regional field reports remain visible zero-weight diagnostics.",
+        "The composite keeps the approved nine fixed weights. Nominally, fields contribute 50%, "
+        "integrated forces 25%, and constant-placement profiles 25%. Relative-placement profiles "
+        "and regional field reports remain visible zero-weight diagnostics.",
     )
     items.extend(
         [
@@ -1072,6 +1058,16 @@ def scoring() -> list[Flowable]:
                 [24 * mm, 77 * mm, 24 * mm, CONTENT_WIDTH - 125 * mm],
                 compact=True,
             ),
+            callout(
+                "Surface-only scoring: fixed 60-point ceiling",
+                "Surface pressure, wall shear, all three surface-integrated force components, and Cp "
+                "remain available: together their fixed weights total 60%. Volume velocity (15%), "
+                "volume pressure (10%), and constant velocity profiles (15%) are unavailable and each "
+                "receives a transformed component score of exactly zero. Their scientific metric values "
+                "are absent, no dummy fields are used, and no weight is transferred to another component. "
+                "A perfect surface-only entry therefore scores 60/100.",
+                tone="orange",
+            ),
             para("Transforms", "h2"),
             callout(
                 "Field-error component",
@@ -1084,19 +1080,12 @@ def scoring() -> list[Flowable]:
                 "<b>score = 100 x clip(R2, 0, 1)</b>. The weighted component scores sum to the overall score.",
             ),
             para("Important scientific details", "h2"),
-            bullet("Four field errors are complete-case relative L2 percentages, macro-averaged equally across cases."),
+            bullet("Available field errors are complete-case relative L2 percentages, macro-averaged equally across cases."),
             bullet("Forces are integrated from predicted native surface pressure and wall shear. Pitch truth is <font name='Courier'>(Clf - Clr) / 2</font>."),
             bullet("Velocity is <font name='Courier'>magnitude(UMeanTrim) / 38.889</font>. Cp is <font name='Courier'>2 * pMeanTrim / 38.889^2</font>."),
             bullet("Profile integration follows each scoring coordinate. Every case/profile block is normalized to unit supported length, giving cases and profiles equal weight in global R2."),
             bullet("Integration stops at every segment boundary. No unsupported interval is bridged and no smoothing is applied."),
-            bullet("Four-region surface and volume reports reuse the submitted native-cell fields. They have weight 0.0 and are not consumed by any transformed component or the overall score."),
-            callout(
-                "Why the complete split matters",
-                "R2 measures variation across observations. An individual case supplies losses and "
-                "integrated values, but not the population variation needed for official force R2, "
-                "profile R2, component scores, or the overall score.",
-                tone="orange",
-            ),
+            bullet("Four-region surface reports, plus volume reports when submitted, reuse native-cell fields. They have weight 0.0 and are not consumed by any transformed component or the overall score."),
             PageBreak(),
         ]
     )
@@ -1107,8 +1096,9 @@ def delivery() -> list[Flowable]:
     items = section_title(
         "09 / Package and delivery",
         "Verify first; upload privately",
-        "The packaged result is compact and deterministic. It contains the scientific outputs, "
-        "profile predictions, report-only regional diagnostics, entry identity, immutable input hashes, and runtime provenance - not the "
+        "The packaged result is compact and deterministic. It contains the declared scope, available "
+        "scientific outputs, component availability and scores, available profile predictions, "
+        "report-only regional diagnostics, entry identity, immutable input hashes, and runtime provenance - not the "
         "large raw native prediction chunks by default.",
     )
     items.extend(
@@ -1166,6 +1156,12 @@ Contact: <contact-email>
                 "and <font name='Courier'>sha256</font>. The evaluator records the reference but does not copy "
                 "that artifact into the result ZIP.",
             ),
+            para(
+                'Questions: <link href="mailto:neil@neilashton.co.uk">neil@neilashton.co.uk</link> or '
+                '<link href="mailto:astridwalle@cfdsolutions.net">astridwalle@cfdsolutions.net</link>, '
+                "the AutoCFD5 AI/ML TFG organisers.",
+                "small",
+            ),
             PageBreak(),
         ]
     )
@@ -1190,10 +1186,12 @@ def troubleshooting() -> list[Flowable]:
                     ["entry split ID, order or membership differs", "For an official split, restore its complete ordered test list. For a custom split, supply complete, disjoint train, validation, and test arrays."],
                     ["prediction manifest or chunk identity differs", "Regenerate manifest sizes and SHA-256 values after writing final NPZ chunks. Do not modify chunks afterward."],
                     ["raw IDs are missing, repeated, or out of range", "Export every native cell exactly once. Do not use solver-local reorderings without mapping back to raw native IDs."],
+                    ["volume manifest is required", "The entry is using <font name='Courier'>surface_and_volume</font> (also the legacy default). Supply complete volume predictions or explicitly set <font name='Courier'>prediction_scope</font> to <font name='Courier'>surface_only</font>."],
+                    ["surface-only entry contains no velocity metric", "Expected: velocity-profile and both volume scientific metrics are absent; their component scores are zero and weights stay fixed."],
                     ["result.json already exists", "That output directory is complete. Choose a new output directory for another model version."],
                     ["interrupted full evaluation", "Repeat the identical command with <font name='Courier'>--resume</font>; validated completed case work is retained."],
                     ["profile line appears stepped or has a gap", "This can be scientifically correct: raw samples are unsmoothed, and unsupported intervals are intentionally disconnected."],
-                    ["temporary space is exhausted", "The report-only volume-region pass needs roughly 9 GiB of temporary local space per active case. Point <font name='Courier'>TMPDIR</font> at suitable local scratch or reduce evaluation concurrency."],
+                    ["temporary space is exhausted", "For full-field entries, the volume-region pass needs roughly 9 GiB of temporary local space per active case. Point <font name='Courier'>TMPDIR</font> at suitable local scratch or reduce evaluation concurrency. Surface-only never opens volume data."],
                     ["regional diagnostics do not reconstruct", "Do not edit the report. Re-run with the frozen evaluator and unchanged prediction chunks; all four exhaustive regions must reproduce the global additive field sums."],
                 ],
                 [48 * mm, CONTENT_WIDTH - 48 * mm],
@@ -1203,23 +1201,13 @@ def troubleshooting() -> list[Flowable]:
             bullet(f"[ ] I used Linux, Python 3.12, and the frozen <b>{EVALUATOR_TAG}</b> release."),
             bullet("[ ] The support and native dataset identities verified automatically."),
             bullet("[ ] My <font name='Courier'>entry.json</font> uses the submission ID sent by the AutoCFD organising committee and the official Full split."),
-            bullet("[ ] Every selected case has complete native-order surface and volume predictions."),
+            bullet("[ ] I declared one prediction scope. Every selected case has the complete native surface; full-field entries also have the complete native volume."),
             bullet("[ ] <font name='Courier'>evaluate-entry</font> completed and <font name='Courier'>result.json</font> reports the exact split as complete."),
-            bullet("[ ] I inspected aggregate metrics and at least one local HTML report, including both constant and relative profiles."),
-            bullet("[ ] I confirmed the packaged regional diagnostics are report only, have weight 0.0, and reconstruct the unchanged global field sums."),
+            bullet("[ ] I inspected aggregate metrics and at least one local HTML report; any unavailable surface-only components are explicitly marked and contain no dummy values."),
+            bullet("[ ] I confirmed regional diagnostics are report only, have weight 0.0, and reconstruct every submitted field's unchanged global sums."),
             bullet("[ ] <font name='Courier'>verify-package</font> reported the final ZIP as valid."),
             bullet("[ ] I uploaded the ZIP through the AutoCFD Dropbox File Request and retained the original ZIP plus checksum."),
             bullet("[ ] My receipt email contains the exact submission ID, filename, and SHA-256."),
-            callout(
-                "Canonical references",
-                f'Repository: <link href="{REPOSITORY_URL}">{REPOSITORY_URL}</link><br/>'
-                f'Profile support: <link href="{SUPPORT_URL}">{SUPPORT_URL}</link><br/>'
-                f'DrivAerML dataset: <link href="{DATASET_URL}">{DATASET_URL}</link><br/>'
-                f'Submission upload: <link href="{DROPBOX_REQUEST_URL}">{DROPBOX_REQUEST_URL}</link><br/><br/>'
-                'Questions: <link href="mailto:neil@neilashton.co.uk">neil@neilashton.co.uk</link> or '
-                '<link href="mailto:astridwalle@cfdsolutions.net">astridwalle@cfdsolutions.net</link> '
-                "(AutoCFD5 AI/ML TFG organisers). Do not send an entry through a public repository channel.",
-            ),
         ]
     )
     return items

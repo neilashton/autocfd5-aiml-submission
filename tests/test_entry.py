@@ -4,7 +4,11 @@ from pathlib import Path
 
 import pytest
 
-from autocfd5_aiml.entry import EntryError, load_entry
+from autocfd5_aiml.constants import (
+    PREDICTION_SCOPE_FULL,
+    PREDICTION_SCOPE_SURFACE_ONLY,
+)
+from autocfd5_aiml.entry import EntryError, entry_prediction_scope, load_entry
 from autocfd5_aiml.jsonio import write_json
 
 
@@ -27,8 +31,34 @@ def test_official_example_uses_only_committee_submission_id() -> None:
     entry = load_entry(root / "examples" / "entry" / "entry.json")
     assert entry["submission_id"] == "assigned-submission-id"
     assert entry["split_id"] == "full"
+    assert entry_prediction_scope(entry) == PREDICTION_SCOPE_FULL
     assert "train_case_ids" not in entry
     assert "validation_case_ids" not in entry
+
+
+def test_legacy_entry_defaults_to_full_and_surface_only_is_explicit(
+    tmp_path: Path,
+) -> None:
+    legacy = _custom_entry()
+    legacy_path = tmp_path / "legacy" / "entry.json"
+    write_json(legacy_path, legacy)
+    assert entry_prediction_scope(load_entry(legacy_path)) == PREDICTION_SCOPE_FULL
+
+    surface_only = _custom_entry()
+    surface_only["prediction_scope"] = PREDICTION_SCOPE_SURFACE_ONLY
+    surface_path = tmp_path / "surface" / "entry.json"
+    write_json(surface_path, surface_only)
+    assert (
+        entry_prediction_scope(load_entry(surface_path))
+        == PREDICTION_SCOPE_SURFACE_ONLY
+    )
+
+    invalid = _custom_entry()
+    invalid["prediction_scope"] = "surface_maybe"
+    invalid_path = tmp_path / "invalid" / "entry.json"
+    write_json(invalid_path, invalid)
+    with pytest.raises(EntryError, match="prediction_scope"):
+        load_entry(invalid_path)
 
 
 def test_custom_split_requires_complete_disjoint_membership(tmp_path: Path) -> None:

@@ -8,7 +8,13 @@ from typing import Any
 
 import numpy as np
 
-from .constants import DATASET_REVISION, U_INF_M_PER_S
+from .constants import (
+    DATASET_REVISION,
+    PREDICTION_SCOPE_FULL,
+    PREDICTION_SCOPE_SURFACE_ONLY,
+    PREDICTION_SCOPES,
+    U_INF_M_PER_S,
+)
 from .core.prediction_chunks import (
     DEFAULT_HASH_CHUNK_BYTES,
     DEFAULT_VALIDATION_BLOCK_ROWS,
@@ -21,7 +27,7 @@ from .jsonio import canonical_json_bytes, read_json, sha256_bytes, sha256_file
 
 SUPPORT_INDEX_SCHEMA = "autocfd5-aiml-native-profile-support-index-v1"
 SUPPORT_CHUNK_SCHEMA = "autocfd5-aiml-native-profile-support-chunk-v1"
-PROFILE_CASE_SCHEMA = "autocfd5-aiml-profile-case-result-v1"
+PROFILE_CASE_SCHEMA = "autocfd5-aiml-profile-case-result-v2"
 CONSTANT_VELOCITY_FAMILY = "drivaerml-autocfd5-constant-v1"
 RELATIVE_VELOCITY_FAMILY = "drivaerml-velocity-relative-v3"
 CONSTANT_CP_FAMILY = "drivaerml_cp_constant_v1"
@@ -372,11 +378,15 @@ def r2_from_block_statistics(statistics: Sequence[Sequence[float]]) -> float:
 def profile_statistics_from_series(
     support: ProfileSupportCase,
     prediction_series: Sequence[Mapping[str, Any]],
+    *,
+    prediction_scope: str = PREDICTION_SCOPE_FULL,
 ) -> dict[str, Any]:
     """Reduce retained profile predictions against exact native support."""
 
     if len(prediction_series) != 40:
         raise ProfileEvaluationError("profile prediction output must contain 40 series")
+    if prediction_scope not in PREDICTION_SCOPES:
+        raise ProfileEvaluationError("profile prediction scope differs")
     predicted_by_key: dict[tuple[str, str], Mapping[str, Any]] = {}
     for row in prediction_series:
         key = (str(row.get("family_id")), str(row.get("station_id")))
@@ -394,6 +404,22 @@ def profile_statistics_from_series(
         if truth_row.get("representation") == "shared_alias":
             continue
         prediction_row = predicted_by_key[key]
+        is_velocity = key[0] in {
+            CONSTANT_VELOCITY_FAMILY,
+            RELATIVE_VELOCITY_FAMILY,
+        }
+        if prediction_scope == PREDICTION_SCOPE_SURFACE_ONLY and is_velocity:
+            if (
+                prediction_row.get("availability")
+                != "not_submitted_surface_only"
+                or "prediction" in prediction_row
+            ):
+                raise ProfileEvaluationError(
+                    f"surface-only velocity profile availability differs for {key}"
+                )
+            continue
+        if prediction_row.get("availability", "available") != "available":
+            raise ProfileEvaluationError(f"profile availability differs for {key}")
         prediction = prediction_row.get("prediction")
         if (
             not isinstance(prediction, list)
@@ -414,6 +440,8 @@ def profile_statistics_from_series(
     for key, truth_row in support_by_key.items():
         if truth_row.get("representation") != "shared_alias":
             continue
+        if predicted_by_key[key].get("availability", "available") != "available":
+            raise ProfileEvaluationError(f"profile alias availability differs for {key}")
         reference = truth_row["shared_support_ref"]
         canonical = (
             str(reference["canonical_family_id"]),
@@ -429,6 +457,8 @@ def profile_statistics_from_series(
             statistics_by_key[(str(row["family_id"]), str(row["station_id"]))]
             for row in support.series
             if row["family_id"] == family_id
+            and (str(row["family_id"]), str(row["station_id"]))
+            in statistics_by_key
         ]
 
     constant_velocity = family(CONSTANT_VELOCITY_FAMILY)
@@ -440,42 +470,71 @@ def profile_statistics_from_series(
         for row in support.series
         if row["family_id"] == CONSTANT_VELOCITY_FAMILY
         and row["station_id"] in EXPERIMENTAL_VELOCITY_STATIONS
+        and (str(row["family_id"]), str(row["station_id"]))
+        in statistics_by_key
     ]
+    expected_lengths = (
+        (0, 4, 0, 4)
+        if prediction_scope == PREDICTION_SCOPE_SURFACE_ONLY
+        else (16, 4, 16, 4)
+    )
+    expected_experimental = 0 if prediction_scope == PREDICTION_SCOPE_SURFACE_ONLY else 11
     if (
         tuple(map(len, (constant_velocity, constant_cp, relative_velocity, relative_cp)))
-        != (
-            16,
-            4,
-            16,
-            4,
-        )
-        or len(experimental) != 11
+        != expected_lengths
+        or len(experimental) != expected_experimental
     ):
         raise ProfileEvaluationError("profile metric family coverage differs")
-    return {
-        "velocity_profile_r2_blocks": [list(row[:3]) for row in constant_velocity],
+    result = {
         "cp_cut_r2_blocks": [list(row[:3]) for row in constant_cp],
-        "velocity_profile_uinf_rmse": math.fsum(row[3] for row in constant_velocity) / 16.0,
-        "velocity_profile_experimental_subset_uinf_rmse": math.fsum(experimental) / 11.0,
         "cp_cut_rmse": math.fsum(row[3] for row in constant_cp) / 4.0,
-        "relative_velocity_profile_r2_blocks": [list(row[:3]) for row in relative_velocity],
         "relative_cp_cut_r2_blocks": [list(row[:3]) for row in relative_cp],
-        "relative_velocity_profile_uinf_rmse": (
-            math.fsum(row[3] for row in relative_velocity) / 16.0
-        ),
         "relative_cp_cut_rmse": math.fsum(row[3] for row in relative_cp) / 4.0,
     }
+    if prediction_scope == PREDICTION_SCOPE_FULL:
+        result.update(
+            {
+                "velocity_profile_r2_blocks": [
+                    list(row[:3]) for row in constant_velocity
+                ],
+                "velocity_profile_uinf_rmse": (
+                    math.fsum(row[3] for row in constant_velocity) / 16.0
+                ),
+                "velocity_profile_experimental_subset_uinf_rmse": (
+                    math.fsum(experimental) / 11.0
+                ),
+                "relative_velocity_profile_r2_blocks": [
+                    list(row[:3]) for row in relative_velocity
+                ],
+                "relative_velocity_profile_uinf_rmse": (
+                    math.fsum(row[3] for row in relative_velocity) / 16.0
+                ),
+            }
+        )
+    return result
 
 
 def evaluate_case_profiles(
     support: ProfileSupportCase,
     *,
     surface_prediction_manifest: PredictionChunkManifest | Path | str,
-    volume_prediction_manifest: PredictionChunkManifest | Path | str,
+    volume_prediction_manifest: PredictionChunkManifest | Path | str | None,
+    prediction_scope: str = PREDICTION_SCOPE_FULL,
     maximum_chunk_rows: int = 1_000_000,
     hash_chunk_bytes: int = DEFAULT_HASH_CHUNK_BYTES,
     validation_block_rows: int = DEFAULT_VALIDATION_BLOCK_ROWS,
 ) -> dict[str, Any]:
+    if prediction_scope not in PREDICTION_SCOPES:
+        raise ProfileEvaluationError("profile prediction scope differs")
+    if prediction_scope == PREDICTION_SCOPE_FULL and volume_prediction_manifest is None:
+        raise ProfileEvaluationError("full-field profile evaluation requires a volume manifest")
+    if (
+        prediction_scope == PREDICTION_SCOPE_SURFACE_ONLY
+        and volume_prediction_manifest is not None
+    ):
+        raise ProfileEvaluationError(
+            "surface-only profile evaluation must not receive a volume manifest"
+        )
     materialized = [row for row in support.series if row.get("representation") == "materialized"]
     surface_ids = [
         int(raw_id)
@@ -500,16 +559,20 @@ def evaluate_case_profiles(
         hash_chunk_bytes=hash_chunk_bytes,
         validation_block_rows=validation_block_rows,
     )
-    volume = _gather_field(
-        volume_prediction_manifest,
-        volume_ids,
-        case_id=support.case_id,
-        support_id="volume_native_cells",
-        field_name="UMeanTrim",
-        expected_total_row_count=support.volume_row_count,
-        maximum_chunk_rows=maximum_chunk_rows,
-        hash_chunk_bytes=hash_chunk_bytes,
-        validation_block_rows=validation_block_rows,
+    volume = (
+        _gather_field(
+            volume_prediction_manifest,
+            volume_ids,
+            case_id=support.case_id,
+            support_id="volume_native_cells",
+            field_name="UMeanTrim",
+            expected_total_row_count=support.volume_row_count,
+            maximum_chunk_rows=maximum_chunk_rows,
+            hash_chunk_bytes=hash_chunk_bytes,
+            validation_block_rows=validation_block_rows,
+        )
+        if volume_prediction_manifest is not None
+        else None
     )
     output_series: list[dict[str, Any]] = []
     velocity_statistics: list[tuple[float, float, float, float]] = []
@@ -538,11 +601,27 @@ def evaluate_case_profiles(
             )
         }
         if row.get("representation") == "shared_alias":
-            output_series.append({**common, "shared_support_ref": dict(row["shared_support_ref"])})
+            output_series.append(
+                {
+                    **common,
+                    "availability": "available",
+                    "shared_support_ref": dict(row["shared_support_ref"]),
+                }
+            )
             aliases.append(row)
             continue
         raw_ids = row["raw_native_cell_id"]
         if row.get("quantity_id") == "velocity_ratio":
+            if prediction_scope == PREDICTION_SCOPE_SURFACE_ONLY:
+                output_series.append(
+                    {
+                        **common,
+                        "availability": "not_submitted_surface_only",
+                    }
+                )
+                continue
+            if volume is None:
+                raise ProfileEvaluationError("volume profile input is absent")
             native_prediction = volume.values_for(raw_ids)
             prediction = np.linalg.norm(native_prediction, axis=-1) / U_INF_M_PER_S
         elif row.get("quantity_id") == "cp":
@@ -553,6 +632,7 @@ def evaluate_case_profiles(
         prediction_values = [float(value) for value in prediction]
         emitted = {
             **common,
+            "availability": "available",
             "support_identity_sha256": row["support_identity_sha256"],
             "coordinate_id": row["coordinate_id"],
             "coordinate_unit": row["coordinate_unit"],
@@ -594,16 +674,37 @@ def evaluate_case_profiles(
         if alias.get("family_id") != RELATIVE_CP_FAMILY:
             raise ProfileEvaluationError("only report-only Cp series may share support")
         relative_cp_statistics.append(evaluated_by_key[canonical_key][0])
-    if len(velocity_statistics) != 16 or len(cp_statistics) != 4:
+    expected_velocity = 0 if prediction_scope == PREDICTION_SCOPE_SURFACE_ONLY else 16
+    if len(velocity_statistics) != expected_velocity or len(cp_statistics) != 4:
         raise ProfileEvaluationError("ranked constant profile coverage differs")
-    if len(experimental_velocity_rmse) != len(EXPERIMENTAL_VELOCITY_STATIONS):
+    expected_experimental = (
+        0
+        if prediction_scope == PREDICTION_SCOPE_SURFACE_ONLY
+        else len(EXPERIMENTAL_VELOCITY_STATIONS)
+    )
+    if len(experimental_velocity_rmse) != expected_experimental:
         raise ProfileEvaluationError("experimental velocity subset coverage differs")
-    if len(relative_velocity_statistics) != 16 or len(relative_cp_statistics) != 4:
+    if (
+        len(relative_velocity_statistics) != expected_velocity
+        or len(relative_cp_statistics) != 4
+    ):
         raise ProfileEvaluationError("report-only relative profile coverage differs")
+    prediction_inputs = {
+        "surface_native_cells": {
+            "manifest_sha256": surface.manifest_sha256,
+            "chunk_sha256": list(surface.chunk_sha256),
+        }
+    }
+    if volume is not None:
+        prediction_inputs["volume_native_cells"] = {
+            "manifest_sha256": volume.manifest_sha256,
+            "chunk_sha256": list(volume.chunk_sha256),
+        }
     return {
         "schema": PROFILE_CASE_SCHEMA,
-        "schema_version": 1,
+        "schema_version": 2,
         "case_id": support.case_id,
+        "prediction_scope": prediction_scope,
         "support": {
             "index_sha256": support.index_sha256,
             "chunk_sha256": support.chunk_sha256,
@@ -611,17 +712,26 @@ def evaluate_case_profiles(
             "relative_series_count": 20,
             "explicit_segments_preserved": True,
         },
-        "prediction_inputs": {
-            "surface_native_cells": {
-                "manifest_sha256": surface.manifest_sha256,
-                "chunk_sha256": list(surface.chunk_sha256),
-            },
-            "volume_native_cells": {
-                "manifest_sha256": volume.manifest_sha256,
-                "chunk_sha256": list(volume.chunk_sha256),
-            },
+        "family_availability": {
+            CONSTANT_VELOCITY_FAMILY: (
+                "not_submitted_surface_only"
+                if prediction_scope == PREDICTION_SCOPE_SURFACE_ONLY
+                else "available"
+            ),
+            RELATIVE_VELOCITY_FAMILY: (
+                "not_submitted_surface_only"
+                if prediction_scope == PREDICTION_SCOPE_SURFACE_ONLY
+                else "available"
+            ),
+            CONSTANT_CP_FAMILY: "available",
+            RELATIVE_CP_FAMILY: "available",
         },
-        "metric_statistics": profile_statistics_from_series(support, output_series),
+        "prediction_inputs": prediction_inputs,
+        "metric_statistics": profile_statistics_from_series(
+            support,
+            output_series,
+            prediction_scope=prediction_scope,
+        ),
         "series": output_series,
     }
 

@@ -157,12 +157,16 @@ def render_case_report(
         RELATIVE_CP_FAMILY,
     ):
         charts = []
+        unavailable = 0
         for key, support in support_by_key.items():
             if key[0] != family:
                 continue
             predicted = prediction_by_key.get(key)
             if predicted is None:
                 raise ReportError(f"prediction series is missing: {key}")
+            if predicted.get("availability") == "not_submitted_surface_only":
+                unavailable += 1
+                continue
             if support.get("representation") == "shared_alias":
                 reference = support["shared_support_ref"]
                 canonical = (
@@ -178,9 +182,18 @@ def render_case_report(
                     title=key[1],
                 )
             )
+        if charts:
+            content = f'<div class="grid">{"".join(charts)}</div>'
+        elif unavailable:
+            content = (
+                '<div class="unavailable"><strong>Not submitted</strong><br/>'
+                "This is a surface-only entry. Velocity-profile component points are "
+                "fixed at zero and no prediction values have been fabricated.</div>"
+            )
+        else:
+            raise ReportError(f"profile family has no available series: {family}")
         sections.append(
-            f"<section><h2>{html.escape(_FAMILY_LABELS[family])}</h2>"
-            f'<div class="grid">{"".join(charts)}</div></section>'
+            f"<section><h2>{html.escape(_FAMILY_LABELS[family])}</h2>{content}</section>"
         )
     method = result.get("submission", {}).get("method_name", "Submitted method")
     document = f"""<!doctype html>
@@ -192,6 +205,7 @@ h1,h2,h3{{line-height:1.2}} h2{{margin-top:34px}} h3{{font-size:14px;margin:0 0 
 .legend{{display:flex;gap:20px;margin:12px 0 24px}} .swatch{{display:inline-block;width:24px;border-top:3px solid;margin-right:6px}}
 .grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(520px,1fr));gap:16px}}
 .chart{{background:white;border:1px solid #eaecf0;border-radius:8px;padding:14px}} svg{{width:100%;height:auto}}
+.unavailable{{max-width:720px;padding:18px;border:1px solid #f5c26b;border-radius:8px;background:#fff8e8;color:#694d17}}
 svg text{{font-size:11px;fill:#475467}}
 </style></head><body>
 <h1>{html.escape(str(method))}: {html.escape(case_id)}</h1>
