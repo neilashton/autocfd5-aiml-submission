@@ -6,8 +6,8 @@ import sys
 from pathlib import Path
 
 from .case_evaluator import evaluate_case
-from .constants import contract_root
-from .entry import evaluate_entry, load_entry
+from .constants import PREDICTION_SCOPE_FULL, PREDICTION_SCOPES, contract_root
+from .entry import entry_prediction_scope, evaluate_entry, load_entry
 from .fetch import fetch_dataset_cases, fetch_dataset_split, fetch_support
 from .jsonio import write_json
 from .packaging import create_package, verify_package
@@ -36,7 +36,12 @@ def _parser() -> argparse.ArgumentParser:
     one.add_argument("--dataset-root", type=Path, required=True)
     one.add_argument("--support-root", type=Path, required=True)
     one.add_argument("--surface-manifest", type=Path, required=True)
-    one.add_argument("--volume-manifest", type=Path, required=True)
+    one.add_argument("--volume-manifest", type=Path)
+    one.add_argument(
+        "--prediction-scope",
+        choices=sorted(PREDICTION_SCOPES),
+        default=PREDICTION_SCOPE_FULL,
+    )
     one.add_argument(
         "--native-source-pin", type=Path, default=contract_root() / "native-source-pin.json"
     )
@@ -78,6 +83,12 @@ def _parser() -> argparse.ArgumentParser:
     data_source.add_argument("--entry-root", type=Path)
     data.add_argument("--destination", type=Path, required=True)
     data.add_argument(
+        "--prediction-scope",
+        choices=sorted(PREDICTION_SCOPES),
+        default=PREDICTION_SCOPE_FULL,
+        help="Used with --split-id; --entry-root reads the scope from entry.json.",
+    )
+    data.add_argument(
         "--native-source-pin", type=Path, default=contract_root() / "native-source-pin.json"
     )
     data.add_argument("--dry-run", action="store_true")
@@ -108,6 +119,7 @@ def main(argv: list[str] | None = None) -> int:
                 support_root=args.support_root,
                 surface_prediction_manifest=args.surface_manifest,
                 volume_prediction_manifest=args.volume_manifest,
+                prediction_scope=args.prediction_scope,
                 monolithic_volume=args.monolithic_volume,
                 maximum_prediction_chunk_rows=args.maximum_chunk_rows,
                 io_chunk_bytes=args.io_chunk_bytes,
@@ -148,6 +160,7 @@ def main(argv: list[str] | None = None) -> int:
                     case_ids=entry["test_case_ids"],
                     native_source_pin=args.native_source_pin,
                     destination=args.destination,
+                    prediction_scope=entry_prediction_scope(entry),
                     dry_run=args.dry_run,
                 )
             else:
@@ -156,6 +169,7 @@ def main(argv: list[str] | None = None) -> int:
                     split_path=split_path,
                     native_source_pin=args.native_source_pin,
                     destination=args.destination,
+                    prediction_scope=args.prediction_scope,
                     dry_run=args.dry_run,
                 )
             _print({"status": "complete", "dry_run": args.dry_run})

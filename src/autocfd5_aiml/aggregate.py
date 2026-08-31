@@ -6,12 +6,22 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from .constants import SCORING_CONTRACT_SHA256
+from .constants import (
+    PREDICTION_SCOPE_FULL,
+    PREDICTION_SCOPE_SURFACE_ONLY,
+    PREDICTION_SCOPES,
+    SCORING_CONTRACT_SHA256,
+    SURFACE_ONLY_UNAVAILABLE_COMPONENTS,
+)
 from .jsonio import read_json, sha256_file
 from .profiles import r2_from_block_statistics
-from .scores import composite_component_group_scores, composite_overall_score
+from .scores import (
+    composite_component_group_scores,
+    composite_overall_score,
+    composite_transformed_component_scores,
+)
 
-RESULT_SCHEMA = "autocfd5-aiml-drivaerml-result-v1"
+RESULT_SCHEMA = "autocfd5-aiml-drivaerml-result-v2"
 FORCE_TRUTH_SHA256 = "4e9e003da38ccdcacad359451079888361eae221d3c8dad7fd5682250d257865"
 PRIMARY_FIELD_METRICS = (
     "surface_pressure_rel_l2",
@@ -128,8 +138,25 @@ def aggregate_cases(
         raise AggregateError("case result membership differs from the selected test split")
 
     ordered = [by_id[case_id] for case_id in case_ids]
+    prediction_scopes = {case.get("prediction_scope") for case in ordered}
+    if len(prediction_scopes) != 1:
+        raise AggregateError("case results use different prediction scopes")
+    prediction_scope = prediction_scopes.pop()
+    if prediction_scope not in PREDICTION_SCOPES:
+        raise AggregateError("case result prediction scope differs")
+    unavailable_metric_ids = (
+        tuple(sorted(SURFACE_ONLY_UNAVAILABLE_COMPONENTS))
+        if prediction_scope == PREDICTION_SCOPE_SURFACE_ONLY
+        else ()
+    )
+
     field_values: dict[str, float] = {}
-    for metric_id in PRIMARY_FIELD_METRICS:
+    field_metric_ids = (
+        PRIMARY_FIELD_METRICS[:2]
+        if prediction_scope == PREDICTION_SCOPE_SURFACE_ONLY
+        else PRIMARY_FIELD_METRICS
+    )
+    for metric_id in field_metric_ids:
         field_values[metric_id] = _mean(
             [
                 _finite(
@@ -214,10 +241,14 @@ def aggregate_cases(
                 profile_means[metric_id].append(
                     _finite(statistics[metric_id], f"{case_id}.{metric_id}")
                 )
-    if len(velocity_blocks) != 16 * len(case_ids) or len(cp_blocks) != 4 * len(case_ids):
+    expected_velocity_blocks = (
+        0
+        if prediction_scope == PREDICTION_SCOPE_SURFACE_ONLY
+        else 16 * len(case_ids)
+    )
+    if len(velocity_blocks) != expected_velocity_blocks or len(cp_blocks) != 4 * len(case_ids):
         raise AggregateError("constant profile block coverage differs")
     profile_values = {
-        "velocity_profile_r2": r2_from_block_statistics(velocity_blocks),
         "cp_cut_r2": r2_from_block_statistics(cp_blocks),
         **{
             metric_id: _mean(values)
@@ -225,6 +256,10 @@ def aggregate_cases(
             if len(values) == len(case_ids)
         },
     }
+    if prediction_scope == PREDICTION_SCOPE_FULL:
+        profile_values["velocity_profile_r2"] = r2_from_block_statistics(
+            velocity_blocks
+        )
     if len(relative_velocity_blocks) == 16 * len(case_ids):
         profile_values["relative_velocity_profile_r2"] = r2_from_block_statistics(
             relative_velocity_blocks
@@ -238,14 +273,35 @@ def aggregate_cases(
     groups = scoring.get("component_score_groups")
     if not isinstance(overall, Mapping) or not isinstance(groups, Mapping):
         raise AggregateError("scoring declaration is incomplete")
-    values.update(composite_component_group_scores(values, overall, groups))
-    values["overall_score"] = composite_overall_score(values, overall)
+    component_scores = composite_transformed_component_scores(
+        values,
+        overall,
+        unavailable_metric_ids=unavailable_metric_ids,
+    )
+    values.update(
+        composite_component_group_scores(
+            values,
+            overall,
+            groups,
+            unavailable_metric_ids=unavailable_metric_ids,
+        )
+    )
+    values["overall_score"] = composite_overall_score(
+        values,
+        overall,
+        unavailable_metric_ids=unavailable_metric_ids,
+    )
     published = {metric_id: round(value, 12) for metric_id, value in values.items()}
+    published_component_scores = {
+        metric_id: round(value, 12)
+        for metric_id, value in component_scores.items()
+    }
     return {
         "schema": RESULT_SCHEMA,
-        "schema_version": 1,
+        "schema_version": 2,
         "status": "complete",
         "dataset_id": "drivaerml",
+        "prediction_scope": prediction_scope,
         "split": {
             "split_id": split["split_id"],
             "case_set_id": split["case_set_id"],
@@ -258,12 +314,31 @@ def aggregate_cases(
             "complete_exact_membership": True,
         },
         "metric_values": published,
+        "component_scores": published_component_scores,
+        "component_availability": {
+            metric_id: (
+                "not_submitted_zero_score"
+                if metric_id in unavailable_metric_ids
+                else "available"
+            )
+            for metric_id in published_component_scores
+        },
         "scoring": {
             "field_weight": 0.50,
             "force_weight": 0.25,
             "profile_weight": 0.25,
             "constant_profiles_scored": True,
             "relative_profiles_weight": 0.0,
+            "prediction_scope": prediction_scope,
+            "unavailable_component_metric_ids": list(unavailable_metric_ids),
+            "unavailable_component_score": 0.0,
+            "component_weights_renormalized": False,
+            "unavailable_metric_values_fabricated": False,
+            "maximum_attainable_overall_score": (
+                60.0
+                if prediction_scope == PREDICTION_SCOPE_SURFACE_ONLY
+                else 100.0
+            ),
         },
     }
 

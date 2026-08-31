@@ -10,6 +10,8 @@ from pathlib import Path, PurePosixPath
 from .constants import (
     DATASET_REPOSITORY,
     DATASET_REVISION,
+    PREDICTION_SCOPE_FULL,
+    PREDICTION_SCOPES,
     SUPPORT_ASSET_NAME,
     SUPPORT_ASSET_SHA256,
     SUPPORT_INDEX_SHA256,
@@ -97,6 +99,7 @@ def fetch_dataset_split(
     split_path: Path | str,
     native_source_pin: Path | str,
     destination: Path | str,
+    prediction_scope: str = PREDICTION_SCOPE_FULL,
     dry_run: bool = False,
 ) -> None:
     split = read_json(split_path)
@@ -107,6 +110,7 @@ def fetch_dataset_split(
         case_ids=case_ids,
         native_source_pin=native_source_pin,
         destination=destination,
+        prediction_scope=prediction_scope,
         dry_run=dry_run,
     )
 
@@ -116,6 +120,7 @@ def fetch_dataset_cases(
     case_ids: Sequence[str],
     native_source_pin: Path | str,
     destination: Path | str,
+    prediction_scope: str = PREDICTION_SCOPE_FULL,
     dry_run: bool = False,
 ) -> None:
     if (
@@ -124,6 +129,8 @@ def fetch_dataset_cases(
         or len(case_ids) != len(set(case_ids))
     ):
         raise FetchError("test case IDs must be a non-empty unique sequence")
+    if prediction_scope not in PREDICTION_SCOPES:
+        raise FetchError("prediction scope differs")
     pin = load_native_source_pin(native_source_pin)
     filenames = ["force_mom_constref_all.csv"]
     for case_id in case_ids:
@@ -132,9 +139,10 @@ def fetch_dataset_cases(
             [
                 case.boundary.path.as_posix(),
                 case.surface_cell_area.path.as_posix(),
-                *(part.path.as_posix() for part in case.volume_parts),
             ]
         )
+        if prediction_scope == PREDICTION_SCOPE_FULL:
+            filenames.extend(part.path.as_posix() for part in case.volume_parts)
     arguments = [
         "hf",
         "download",

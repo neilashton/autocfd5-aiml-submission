@@ -5,11 +5,17 @@ from pathlib import Path
 from typing import Any
 
 from .constants import (
+    PREDICTION_SCOPE_FULL,
+    PREDICTION_SCOPE_SURFACE_ONLY,
+    PREDICTION_SCOPES,
     REGIONAL_DIAGNOSTICS_CONTRACT_SHA256,
     SUPPORT_INDEX_SHA256,
     contract_root,
 )
-from .core.evaluator import evaluate_candidate_case
+from .core.evaluator import (
+    evaluate_candidate_case,
+    evaluate_surface_only_candidate_case,
+)
 from .core.native_surface import audit_fixed_surface_area_file, load_native_surface_vtp
 from .core.source import (
     index_inline_binary_vtk_xml,
@@ -20,7 +26,7 @@ from .core.source import (
 from .jsonio import sha256_file
 from .profiles import evaluate_case_profiles, load_profile_support_case
 
-CASE_RESULT_SCHEMA = "autocfd5-aiml-drivaerml-case-result-v2"
+CASE_RESULT_SCHEMA = "autocfd5-aiml-drivaerml-case-result-v3"
 
 
 class CaseEvaluationError(ValueError):
@@ -34,11 +40,21 @@ def evaluate_case(
     dataset_root: Path | str,
     support_root: Path | str,
     surface_prediction_manifest: Path | str,
-    volume_prediction_manifest: Path | str,
+    volume_prediction_manifest: Path | str | None = None,
+    prediction_scope: str = PREDICTION_SCOPE_FULL,
     monolithic_volume: Path | str | None = None,
     maximum_prediction_chunk_rows: int = 1_000_000,
     io_chunk_bytes: int = 8 * 1024 * 1024,
 ) -> dict[str, Any]:
+    if prediction_scope not in PREDICTION_SCOPES:
+        raise CaseEvaluationError("prediction scope differs")
+    if prediction_scope == PREDICTION_SCOPE_FULL and volume_prediction_manifest is None:
+        raise CaseEvaluationError("surface_and_volume scope requires a volume manifest")
+    if (
+        prediction_scope == PREDICTION_SCOPE_SURFACE_ONLY
+        and volume_prediction_manifest is not None
+    ):
+        raise CaseEvaluationError("surface_only scope must not receive a volume manifest")
     pin = load_native_source_pin(native_source_pin)
     case = pin.case(case_id)
     resolved = pin.resolve(case_id, dataset_root)
@@ -60,34 +76,52 @@ def evaluate_case(
         expected_area_sha256=case.surface_cell_area.sha256,
         source_boundary_sha256=case.surface_cell_area.source_boundary_sha256,
     )
-    if monolithic_volume is None:
-        volume_stream = open_verified_multipart(
-            resolved,
-            verification_chunk_size=io_chunk_bytes,
-        )
-    else:
-        volume_stream = open_verified_monolithic(
-            resolved,
-            monolithic_volume,
-            verification_chunk_size=io_chunk_bytes,
-        )
     try:
-        with closing(volume_stream) as stream:
-            vtk_index = index_inline_binary_vtk_xml(stream, scan_chunk_size=io_chunk_bytes)
-            core_result = evaluate_candidate_case(
+        if prediction_scope == PREDICTION_SCOPE_SURFACE_ONLY:
+            if monolithic_volume is not None:
+                raise CaseEvaluationError(
+                    "surface_only scope must not receive a monolithic volume"
+                )
+            core_result = evaluate_surface_only_candidate_case(
                 case_id=case_id,
                 native_source_pin=pin,
                 native_surface=surface,
                 fixed_surface_areas=areas,
-                volume_stream=stream,
-                volume_vtk_index=vtk_index,
                 surface_prediction_manifest=surface_prediction_manifest,
-                volume_prediction_manifest=volume_prediction_manifest,
                 maximum_prediction_chunk_rows=maximum_prediction_chunk_rows,
                 hash_chunk_bytes=io_chunk_bytes,
                 validation_block_rows=maximum_prediction_chunk_rows,
-                encoded_chunk_bytes=io_chunk_bytes,
             ).to_json()
+        else:
+            if monolithic_volume is None:
+                volume_stream = open_verified_multipart(
+                    resolved,
+                    verification_chunk_size=io_chunk_bytes,
+                )
+            else:
+                volume_stream = open_verified_monolithic(
+                    resolved,
+                    monolithic_volume,
+                    verification_chunk_size=io_chunk_bytes,
+                )
+            with closing(volume_stream) as stream:
+                vtk_index = index_inline_binary_vtk_xml(
+                    stream, scan_chunk_size=io_chunk_bytes
+                )
+                core_result = evaluate_candidate_case(
+                    case_id=case_id,
+                    native_source_pin=pin,
+                    native_surface=surface,
+                    fixed_surface_areas=areas,
+                    volume_stream=stream,
+                    volume_vtk_index=vtk_index,
+                    surface_prediction_manifest=surface_prediction_manifest,
+                    volume_prediction_manifest=volume_prediction_manifest,
+                    maximum_prediction_chunk_rows=maximum_prediction_chunk_rows,
+                    hash_chunk_bytes=io_chunk_bytes,
+                    validation_block_rows=maximum_prediction_chunk_rows,
+                    encoded_chunk_bytes=io_chunk_bytes,
+                ).to_json()
     finally:
         areas.close()
 
@@ -96,15 +130,17 @@ def evaluate_case(
         profile_support,
         surface_prediction_manifest=surface_prediction_manifest,
         volume_prediction_manifest=volume_prediction_manifest,
+        prediction_scope=prediction_scope,
         maximum_chunk_rows=maximum_prediction_chunk_rows,
         hash_chunk_bytes=io_chunk_bytes,
         validation_block_rows=maximum_prediction_chunk_rows,
     )
     return {
         "schema": CASE_RESULT_SCHEMA,
-        "schema_version": 2,
+        "schema_version": 3,
         "status": "complete",
         "case_id": case_id,
+        "prediction_scope": prediction_scope,
         "core": core_result,
         "profiles": profiles,
     }

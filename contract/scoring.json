@@ -85,6 +85,27 @@
     "force": 0.25,
     "profiles": 0.25
   },
+  "prediction_scope_policy": {
+    "allowed_scopes": [
+      "surface_and_volume",
+      "surface_only"
+    ],
+    "default_when_omitted_from_legacy_entry": "surface_and_volume",
+    "surface_only": {
+      "required_prediction_supports": [
+        "surface_native_cells"
+      ],
+      "unavailable_component_metric_ids": [
+        "volume_velocity_rel_l2",
+        "volume_pressure_rel_l2",
+        "velocity_profile_r2"
+      ],
+      "unavailable_transformed_component_score": 0.0,
+      "component_weights_renormalized": false,
+      "unavailable_scientific_metric_values_fabricated": false,
+      "maximum_overall_score": 60.0
+    }
+  },
   "profile_rules": {
     "scored": {
       "constant_velocity_series_per_case": 16,

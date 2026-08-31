@@ -13,9 +13,13 @@ from .aggregate import RESULT_SCHEMA, AggregateError, aggregate_cases
 from .constants import (
     DATASET_REVISION,
     EVALUATOR_VERSION,
+    PREDICTION_SCOPE_FULL,
+    PREDICTION_SCOPE_SURFACE_ONLY,
+    PREDICTION_SCOPES,
     REGIONAL_DIAGNOSTICS_CONTRACT_SHA256,
     SCORING_CONTRACT_SHA256,
     SUPPORT_INDEX_SHA256,
+    SURFACE_ONLY_UNAVAILABLE_COMPONENTS,
     contract_root,
 )
 from .core.evaluator import OFFICIAL_NATIVE_SOURCE_PIN_SHA256
@@ -81,6 +85,7 @@ def create_package(result_directory: Path | str, output: Path | str) -> dict[str
         "schema_version": 1,
         "submission_id": result.get("submission", {}).get("submission_id"),
         "dataset_id": "drivaerml",
+        "prediction_scope": result.get("prediction_scope"),
         "file_count": len(entries),
         "files": entries,
     }
@@ -147,6 +152,8 @@ def verify_package(path: Path | str) -> dict[str, Any]:
             raise PackageError("cannot read package manifest") from error
         if manifest.get("schema") != PACKAGE_SCHEMA or manifest.get("schema_version") != 1:
             raise PackageError("package manifest schema differs")
+        if manifest.get("prediction_scope") not in PREDICTION_SCOPES:
+            raise PackageError("package manifest prediction scope differs")
         entries = manifest.get("files")
         if not isinstance(entries, list) or manifest.get("file_count") != len(entries):
             raise PackageError("package manifest file count differs")
@@ -167,6 +174,8 @@ def verify_package(path: Path | str) -> dict[str, Any]:
         if set(names) != expected_names:
             raise PackageError("package members differ from the closed manifest")
         result = read_json_bytes(archive.read("result.json"))
+        if manifest.get("prediction_scope") != result.get("prediction_scope"):
+            raise PackageError("package and result prediction scopes differ")
         _verify_result(result, archive)
     return {
         "file": source.name,
@@ -180,11 +189,20 @@ def verify_package(path: Path | str) -> dict[str, Any]:
 def _verify_result(result: dict[str, Any], archive: zipfile.ZipFile) -> None:
     if (
         result.get("schema") != RESULT_SCHEMA
-        or result.get("schema_version") != 1
+        or result.get("schema_version") != 2
         or result.get("status") != "complete"
         or result.get("dataset_id") != "drivaerml"
     ):
         raise PackageError("result.json contract differs")
+    prediction_scope = result.get("prediction_scope")
+    if prediction_scope not in PREDICTION_SCOPES:
+        raise PackageError("result prediction scope differs")
+    submission = result.get("submission")
+    if (
+        not isinstance(submission, dict)
+        or submission.get("prediction_scope") != prediction_scope
+    ):
+        raise PackageError("submission prediction scope differs")
     split = result.get("split")
     if not isinstance(split, dict) or split.get("complete_exact_membership") is not True:
         raise PackageError("result split is incomplete")
@@ -249,6 +267,8 @@ def _verify_result(result: dict[str, Any], archive: zipfile.ZipFile) -> None:
         )
     except RegionalAggregateError as error:
         raise PackageError(f"regional diagnostics report is invalid: {error}") from error
+    if regional_report.get("prediction_scope") != prediction_scope:
+        raise PackageError("regional diagnostics prediction scope differs")
     try:
         profile_index_payload = archive.read("profiles/index.json")
     except KeyError as error:
@@ -257,8 +277,17 @@ def _verify_result(result: dict[str, Any], archive: zipfile.ZipFile) -> None:
         raise PackageError("profile prediction index identity differs")
     profile_index = read_json_bytes(profile_index_payload)
     chunks = profile_index.get("chunks")
-    if not isinstance(chunks, list) or profile_index.get("case_count") != len(
-        expected_split["test_case_ids"]
+    if (
+        not isinstance(chunks, list)
+        or profile_index.get("case_count") != len(expected_split["test_case_ids"])
+        or profile_index.get("prediction_scope") != prediction_scope
+        or profile_index.get("velocity_series_availability")
+        != (
+            "not_submitted_surface_only"
+            if prediction_scope == PREDICTION_SCOPE_SURFACE_ONLY
+            else "available"
+        )
+        or profile_index.get("cp_series_availability") != "available"
     ):
         raise PackageError("profile prediction index coverage differs")
     chunk_case_ids: list[str] = []
@@ -280,6 +309,7 @@ def _verify_result(result: dict[str, Any], archive: zipfile.ZipFile) -> None:
         if (
             chunk_document.get("schema")
             != "autocfd5-aiml-profile-prediction-chunk-v1"
+            or chunk_document.get("prediction_scope") != prediction_scope
             or chunk_document.get("case_ids") != declared_case_ids
             or chunk_document.get("case_count") != len(declared_case_ids)
             or chunk_document.get("series_per_case") != 40
@@ -288,6 +318,24 @@ def _verify_result(result: dict[str, Any], archive: zipfile.ZipFile) -> None:
             or any(len(case.get("series", [])) != 40 for case in chunk_cases)
         ):
             raise PackageError("profile prediction chunk contract differs")
+        for case in chunk_cases:
+            series = case.get("series", [])
+            for item in series:
+                if not isinstance(item, dict):
+                    raise PackageError("profile prediction series is invalid")
+                is_velocity = item.get("quantity_id") == "velocity_ratio"
+                expected_availability = (
+                    "not_submitted_surface_only"
+                    if prediction_scope == PREDICTION_SCOPE_SURFACE_ONLY
+                    and is_velocity
+                    else "available"
+                )
+                if item.get("availability") != expected_availability:
+                    raise PackageError("profile prediction availability differs")
+                if expected_availability != "available" and "prediction" in item:
+                    raise PackageError(
+                        "surface-only velocity profiles contain fabricated values"
+                    )
         chunk_case_ids.extend(declared_case_ids)
     if chunk_case_ids != expected_split["test_case_ids"]:
         raise PackageError("profile prediction case order or membership differs")
@@ -298,15 +346,34 @@ def _verify_result(result: dict[str, Any], archive: zipfile.ZipFile) -> None:
             raise PackageError(f"compact case result is missing: {case_id}")
         case_document = read_json_bytes(archive.read(case_path))
         if (
-            case_document.get("schema") != "autocfd5-aiml-drivaerml-case-result-v2"
-            or case_document.get("schema_version") != 2
+            case_document.get("schema") != "autocfd5-aiml-drivaerml-case-result-v3"
+            or case_document.get("schema_version") != 3
             or case_document.get("case_id") != case_id
             or case_document.get("status") != "complete"
+            or case_document.get("prediction_scope") != prediction_scope
         ):
             raise PackageError(f"compact case result contract differs: {case_id}")
         core = case_document.get("core")
         if not isinstance(core, dict):
             raise PackageError(f"compact case core result is missing: {case_id}")
+        if (
+            core.get("schema")
+            != "autocfd5-aiml-drivaerml-case-evaluation-v4"
+            or core.get("schema_version") != 4
+            or core.get("prediction_scope") != prediction_scope
+        ):
+            raise PackageError(f"compact case core prediction scope differs: {case_id}")
+        prediction_inputs = core.get("prediction_inputs")
+        expected_prediction_supports = (
+            {"surface_native_cells"}
+            if prediction_scope == PREDICTION_SCOPE_SURFACE_ONLY
+            else {"surface_native_cells", "volume_native_cells"}
+        )
+        if (
+            not isinstance(prediction_inputs, dict)
+            or set(prediction_inputs) != expected_prediction_supports
+        ):
+            raise PackageError(f"compact case prediction inputs differ: {case_id}")
         try:
             validate_case_regional_envelope(
                 core.get("report_only_regional_diagnostics", {}),
@@ -338,13 +405,23 @@ def _verify_result(result: dict[str, Any], archive: zipfile.ZipFile) -> None:
         "cd_r2",
         "cl_r2",
         "c_pitch_r2",
-        "velocity_profile_r2",
         "cp_cut_r2",
         "surface_pressure_rel_l2",
         "surface_wall_shear_rel_l2",
-        "volume_pressure_rel_l2",
-        "volume_velocity_rel_l2",
     }
+    unavailable_metrics = (
+        set(SURFACE_ONLY_UNAVAILABLE_COMPONENTS)
+        if prediction_scope == PREDICTION_SCOPE_SURFACE_ONLY
+        else set()
+    )
+    if prediction_scope == PREDICTION_SCOPE_FULL:
+        required_metrics.update(
+            {
+                "velocity_profile_r2",
+                "volume_pressure_rel_l2",
+                "volume_velocity_rel_l2",
+            }
+        )
     if (
         not isinstance(metrics, dict)
         or not required_metrics <= set(metrics)
@@ -356,14 +433,56 @@ def _verify_result(result: dict[str, Any], archive: zipfile.ZipFile) -> None:
         )
     ):
         raise PackageError("result metrics are incomplete or non-finite")
-    expected_scoring_summary = {
-        "field_weight": 0.50,
-        "force_weight": 0.25,
-        "profile_weight": 0.25,
-        "constant_profiles_scored": True,
-        "relative_profiles_weight": 0.0,
+    if unavailable_metrics & set(metrics):
+        raise PackageError("unavailable scientific metric values were fabricated")
+    component_scores = result.get("component_scores")
+    component_availability = result.get("component_availability")
+    expected_component_ids = {
+        "surface_pressure_rel_l2",
+        "surface_wall_shear_rel_l2",
+        "volume_velocity_rel_l2",
+        "volume_pressure_rel_l2",
+        "cd_r2",
+        "cl_r2",
+        "c_pitch_r2",
+        "velocity_profile_r2",
+        "cp_cut_r2",
     }
-    if result.get("scoring") != expected_scoring_summary:
+    if (
+        not isinstance(component_scores, dict)
+        or set(component_scores) != expected_component_ids
+        or any(
+            isinstance(value, bool)
+            or not isinstance(value, int | float)
+            or not math.isfinite(float(value))
+            for value in component_scores.values()
+        )
+        or not isinstance(component_availability, dict)
+        or set(component_availability) != expected_component_ids
+        or component_availability
+        != {
+            metric_id: (
+                "not_submitted_zero_score"
+                if metric_id in unavailable_metrics
+                else "available"
+            )
+            for metric_id in expected_component_ids
+        }
+        or any(component_scores[metric_id] != 0.0 for metric_id in unavailable_metrics)
+    ):
+        raise PackageError("result component availability or scores differ")
+    scoring_summary = result.get("scoring")
+    if (
+        not isinstance(scoring_summary, dict)
+        or scoring_summary.get("prediction_scope") != prediction_scope
+        or scoring_summary.get("unavailable_component_metric_ids")
+        != sorted(unavailable_metrics)
+        or scoring_summary.get("unavailable_component_score") != 0.0
+        or scoring_summary.get("component_weights_renormalized") is not False
+        or scoring_summary.get("unavailable_metric_values_fabricated") is not False
+        or scoring_summary.get("maximum_attainable_overall_score")
+        != (60.0 if prediction_scope == PREDICTION_SCOPE_SURFACE_ONLY else 100.0)
+    ):
         raise PackageError("result scoring summary differs")
 
     scoring_path = contract_root() / "scoring.json"
@@ -393,6 +512,16 @@ def _verify_result(result: dict[str, Any], archive: zipfile.ZipFile) -> None:
     regenerated_metrics = regenerated.get("metric_values")
     if not isinstance(regenerated_metrics, dict) or metrics != regenerated_metrics:
         raise PackageError("result official aggregate metrics differ from compact cases")
+    for key in (
+        "prediction_scope",
+        "component_scores",
+        "component_availability",
+        "scoring",
+    ):
+        if result.get(key) != regenerated.get(key):
+            raise PackageError(
+                f"result {key} differs from the frozen aggregate regeneration"
+            )
 
 
 def _verify_custom_split(document: dict[str, Any], split_id: str) -> None:

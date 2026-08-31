@@ -3,12 +3,19 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from test_regional_aggregate import _case as _regional_case
+from test_regional_aggregate import (
+    _case as _regional_case,
+)
+from test_regional_aggregate import (
+    _surface_case as _surface_regional_case,
+)
 
 from autocfd5_aiml.aggregate import aggregate_cases, load_force_truth
 from autocfd5_aiml.constants import (
     DATASET_REVISION,
     EVALUATOR_VERSION,
+    PREDICTION_SCOPE_FULL,
+    PREDICTION_SCOPE_SURFACE_ONLY,
     REGIONAL_DIAGNOSTICS_CONTRACT_SHA256,
     SCORING_CONTRACT_SHA256,
     SUPPORT_INDEX_SHA256,
@@ -21,10 +28,13 @@ from autocfd5_aiml.regional_aggregate import aggregate_regional_diagnostics
 from autocfd5_aiml.scores import (
     composite_component_group_scores,
     composite_overall_score,
+    composite_transformed_component_scores,
 )
 
 
-def _profile_statistics(case_index: int) -> dict[str, object]:
+def _profile_statistics(
+    case_index: int, *, surface_only: bool = False
+) -> dict[str, object]:
     def blocks(count: int, offset: float) -> list[list[float]]:
         result = []
         for station_index in range(count):
@@ -32,10 +42,10 @@ def _profile_statistics(case_index: int) -> dict[str, object]:
             result.append([truth_mean, truth_mean**2 + 1.0, 0.0])
         return result
 
-    return {
-        "velocity_profile_r2_blocks": blocks(16, 1.0),
-        "cp_cut_r2_blocks": blocks(4, -1.0),
-    }
+    result = {"cp_cut_r2_blocks": blocks(4, -1.0)}
+    if not surface_only:
+        result["velocity_profile_r2_blocks"] = blocks(16, 1.0)
+    return result
 
 
 def _recompute_published_scores(result: dict[str, object]) -> None:
@@ -51,9 +61,17 @@ def _recompute_published_scores(result: dict[str, object]) -> None:
     metrics["overall_score"] = composite_overall_score(
         metrics, scoring["overall_score_composite"]
     )
+    result["component_scores"] = {
+        metric_id: round(value, 12)
+        for metric_id, value in composite_transformed_component_scores(
+            metrics, scoring["overall_score_composite"]
+        ).items()
+    }
 
 
-def _result_tree(root: Path, *, custom: bool = False) -> None:
+def _result_tree(
+    root: Path, *, custom: bool = False, surface_only: bool = False
+) -> None:
     split_path = contract_root() / "splits" / "medium.json"
     split = read_json(split_path)
     if custom:
@@ -74,8 +92,12 @@ def _result_tree(root: Path, *, custom: bool = False) -> None:
         }
         split_path = root / "custom-split.json"
         write_json(split_path, split)
+    case_factory = _surface_regional_case if surface_only else _regional_case
+    prediction_scope = (
+        PREDICTION_SCOPE_SURFACE_ONLY if surface_only else PREDICTION_SCOPE_FULL
+    )
     regional_documents = [
-        _regional_case(case_id, 1.0 + index / 100.0)
+        case_factory(case_id, 1.0 + index / 100.0)
         for index, case_id in enumerate(split["test_case_ids"])
     ]
     force_truth = load_force_truth(contract_root() / "force_mom_constref_all.csv")
@@ -90,15 +112,26 @@ def _result_tree(root: Path, *, custom: bool = False) -> None:
             "Clr": truth["clr"],
         }
         regional_document["profiles"] = {
-            "metric_statistics": _profile_statistics(index)
+            "metric_statistics": _profile_statistics(
+                index, surface_only=surface_only
+            )
         }
+        regional_document["prediction_scope"] = prediction_scope
+        regional_document["core"]["prediction_inputs"] = {
+            "surface_native_cells": {}
+        }
+        if not surface_only:
+            regional_document["core"]["prediction_inputs"][
+                "volume_native_cells"
+            ] = {}
         write_json(
             root / "cases" / f"{case_id}.json",
             {
-                "schema": "autocfd5-aiml-drivaerml-case-result-v2",
-                "schema_version": 2,
+                "schema": "autocfd5-aiml-drivaerml-case-result-v3",
+                "schema_version": 3,
                 "status": "complete",
                 "case_id": case_id,
+                "prediction_scope": prediction_scope,
                 "core": regional_document["core"],
                 "profiles": regional_document["profiles"],
             },
@@ -109,11 +142,27 @@ def _result_tree(root: Path, *, custom: bool = False) -> None:
         {
             "schema": "autocfd5-aiml-profile-prediction-chunk-v1",
             "schema_version": 1,
+            "prediction_scope": prediction_scope,
             "case_count": split["test_case_count"],
             "case_ids": split["test_case_ids"],
             "series_per_case": 40,
             "cases": [
-                {"case_id": case_id, "series": [{} for _ in range(40)]}
+                {
+                    "case_id": case_id,
+                    "series": [
+                        {
+                            "availability": (
+                                "not_submitted_surface_only"
+                                if surface_only and index < 32
+                                else "available"
+                            ),
+                            "quantity_id": (
+                                "velocity_ratio" if index < 32 else "cp"
+                            ),
+                        }
+                        for index in range(40)
+                    ],
+                }
                 for case_id in split["test_case_ids"]
             ],
         },
@@ -122,6 +171,11 @@ def _result_tree(root: Path, *, custom: bool = False) -> None:
         root / "profiles" / "index.json",
         {
             "case_count": split["test_case_count"],
+            "prediction_scope": prediction_scope,
+            "velocity_series_availability": (
+                "not_submitted_surface_only" if surface_only else "available"
+            ),
+            "cp_series_availability": "available",
             "chunks": [
                 {
                     "path": "profiles/chunk-000.json",
@@ -145,7 +199,10 @@ def _result_tree(root: Path, *, custom: bool = False) -> None:
         force_truth_path=contract_root() / "force_mom_constref_all.csv",
         scoring_path=contract_root() / "scoring.json",
     )
-    result["submission"] = {"submission_id": "assigned-submission-id"}
+    result["submission"] = {
+        "submission_id": "assigned-submission-id",
+        "prediction_scope": prediction_scope,
+    }
     result["evaluator"] = {"version": EVALUATOR_VERSION}
     result["inputs"] = {
         "dataset_revision": DATASET_REVISION,
@@ -171,6 +228,31 @@ def test_package_is_deterministic_and_verifiable(tmp_path: Path) -> None:
     verified = verify_package(tmp_path / "first.zip")
     assert verified["submission_id"] == "assigned-submission-id"
     assert verified["entry_count"] == 54
+
+
+def test_surface_only_package_is_verifiable_and_has_fixed_sixty_point_ceiling(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "surface-result"
+    _result_tree(root, surface_only=True)
+    result = read_json(root / "result.json")
+    assert result["prediction_scope"] == PREDICTION_SCOPE_SURFACE_ONLY
+    assert result["scoring"]["maximum_attainable_overall_score"] == 60.0
+    assert result["scoring"]["component_weights_renormalized"] is False
+    for metric_id in (
+        "volume_velocity_rel_l2",
+        "volume_pressure_rel_l2",
+        "velocity_profile_r2",
+    ):
+        assert metric_id not in result["metric_values"]
+        assert result["component_scores"][metric_id] == 0.0
+        assert result["component_availability"][metric_id] == (
+            "not_submitted_zero_score"
+        )
+    created = create_package(root, tmp_path / "surface-only.zip")
+    verified = verify_package(tmp_path / "surface-only.zip")
+    assert created["entry_count"] == 54
+    assert verified["submission_id"] == "assigned-submission-id"
 
 
 def test_custom_split_is_packaged_and_verifiable(tmp_path: Path) -> None:

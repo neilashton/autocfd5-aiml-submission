@@ -13,6 +13,9 @@ from .case_evaluator import CASE_RESULT_SCHEMA, evaluate_case
 from .constants import (
     DATASET_REVISION,
     EVALUATOR_VERSION,
+    PREDICTION_SCOPE_FULL,
+    PREDICTION_SCOPE_SURFACE_ONLY,
+    PREDICTION_SCOPES,
     REGIONAL_DIAGNOSTICS_CONTRACT_SHA256,
     SCORING_CONTRACT_SHA256,
     SUPPORT_INDEX_SHA256,
@@ -36,6 +39,7 @@ _ENTRY_KEYS = {
     "method_name",
     "contact_email",
     "split_id",
+    "prediction_scope",
     "train_case_ids",
     "validation_case_ids",
     "test_case_ids",
@@ -45,6 +49,17 @@ _ENTRY_KEYS = {
 
 class EntryError(ValueError):
     """Raised when an entry or its exact output is invalid."""
+
+
+def entry_prediction_scope(entry: Mapping[str, Any]) -> str:
+    """Return the explicit scope, preserving full-field behavior for legacy entries."""
+
+    value = entry.get("prediction_scope", PREDICTION_SCOPE_FULL)
+    if value not in PREDICTION_SCOPES:
+        raise EntryError(
+            "prediction_scope must be 'surface_and_volume' or 'surface_only'"
+        )
+    return str(value)
 
 
 def _clean_text(value: object, label: str, *, maximum: int = 200) -> str:
@@ -86,7 +101,12 @@ def load_entry(path: Path | str) -> dict[str, Any]:
     document = read_json(path)
     if document.get("schema") != ENTRY_SCHEMA or document.get("schema_version") != 1:
         raise EntryError("entry.json schema differs")
-    required = _ENTRY_KEYS - {"prediction_artifact", "train_case_ids", "validation_case_ids"}
+    required = _ENTRY_KEYS - {
+        "prediction_artifact",
+        "prediction_scope",
+        "train_case_ids",
+        "validation_case_ids",
+    }
     if set(document) - _ENTRY_KEYS or required - set(document):
         raise EntryError("entry.json contains missing or unknown keys")
     submission_id = document.get("submission_id")
@@ -101,6 +121,7 @@ def load_entry(path: Path | str) -> dict[str, Any]:
     split_id = document.get("split_id")
     if not isinstance(split_id, str) or _SAFE_ID.fullmatch(split_id) is None:
         raise EntryError("split_id is invalid")
+    entry_prediction_scope(document)
     test_case_ids = _case_id_array(document.get("test_case_ids"), "test_case_ids")
     official_split_path = contract_root() / "splits" / f"{split_id}.json"
     custom_fields = {"train_case_ids", "validation_case_ids"} & set(document)
@@ -198,11 +219,13 @@ def _profile_chunk(
     case_documents: list[dict[str, Any]],
     *,
     chunk_id: str,
+    prediction_scope: str,
 ) -> dict[str, Any]:
     return {
         "schema": PROFILE_CHUNK_SCHEMA,
         "schema_version": 1,
         "chunk_id": chunk_id,
+        "prediction_scope": prediction_scope,
         "case_count": len(case_documents),
         "case_ids": [case["case_id"] for case in case_documents],
         "series_per_case": 40,
@@ -255,6 +278,7 @@ def evaluate_entry(
         raise EntryError("scoring contract differs from this evaluator build")
     entry_path = source / "entry.json"
     entry = load_entry(entry_path)
+    prediction_scope = entry_prediction_scope(entry)
     if (destination / "result.json").exists():
         raise EntryError("result.json already exists; choose a new output directory")
     destination.mkdir(parents=True, exist_ok=True)
@@ -279,9 +303,10 @@ def evaluate_entry(
             case_result = read_json(work_path)
             if (
                 case_result.get("schema") != CASE_RESULT_SCHEMA
-                or case_result.get("schema_version") != 2
+                or case_result.get("schema_version") != 3
                 or case_result.get("case_id") != case_id
                 or case_result.get("status") != "complete"
+                or case_result.get("prediction_scope") != prediction_scope
             ):
                 raise EntryError(f"retained work result is invalid for {case_id}")
             retained_core = case_result.get("core")
@@ -305,7 +330,12 @@ def evaluate_entry(
                 dataset_root=dataset_root,
                 support_root=support_root,
                 surface_prediction_manifest=case_root / "surface" / "manifest.json",
-                volume_prediction_manifest=case_root / "volume" / "manifest.json",
+                volume_prediction_manifest=(
+                    case_root / "volume" / "manifest.json"
+                    if prediction_scope == PREDICTION_SCOPE_FULL
+                    else None
+                ),
+                prediction_scope=prediction_scope,
                 maximum_prediction_chunk_rows=maximum_prediction_chunk_rows,
                 io_chunk_bytes=io_chunk_bytes,
             )
@@ -332,7 +362,13 @@ def evaluate_entry(
         chunk_path = profile_directory / f"{chunk_id}.json"
         identity = write_json(
             chunk_path,
-            _profile_chunk(documents[offset : offset + 8], chunk_id=chunk_id),
+            _profile_chunk(
+                documents[offset : offset + 8],
+                chunk_id=chunk_id,
+                prediction_scope=prediction_scope,
+            ),
+            # Profile identity coverage remains 40 rows per case; unavailable
+            # velocity rows in surface-only entries carry no fabricated values.
             exclusive=True,
         )
         chunk_rows.append(
@@ -348,10 +384,17 @@ def evaluate_entry(
         "schema": PROFILE_INDEX_SCHEMA,
         "schema_version": 1,
         "submission_id": entry["submission_id"],
+        "prediction_scope": prediction_scope,
         "case_count": len(documents),
         "series_per_case": 40,
         "constant_series_per_case": 20,
         "relative_series_per_case": 20,
+        "velocity_series_availability": (
+            "not_submitted_surface_only"
+            if prediction_scope == PREDICTION_SCOPE_SURFACE_ONLY
+            else "available"
+        ),
+        "cp_series_availability": "available",
         "chunks": chunk_rows,
     }
     profile_index_identity = write_json(
@@ -380,6 +423,7 @@ def evaluate_entry(
     result["submission"] = {
         key: entry[key] for key in ("submission_id", "method_name", "contact_email")
     }
+    result["submission"]["prediction_scope"] = prediction_scope
     if "prediction_artifact" in entry:
         result["submission"]["prediction_artifact"] = entry["prediction_artifact"]
     result["inputs"] = {
@@ -405,16 +449,26 @@ def evaluate_entry(
             "dataset_revision": DATASET_REVISION,
             "runtime": _runtime(),
             "case_count": len(documents),
-            "all_native_and_prediction_hashes_verified": True,
+            "prediction_scope": prediction_scope,
+            "all_supplied_native_and_prediction_hashes_verified": True,
+            "unavailable_metric_values_fabricated": False,
+            "component_weights_renormalized": False,
             "profile_gaps_preserved": True,
             "profile_smoothing_applied": False,
             "regional_diagnostics_report_only": True,
             "regional_diagnostics_scoring_weight": 0.0,
-            "official_scoring_contract_changed": False,
+            "official_component_weights_changed": False,
+            "surface_only_policy_added": True,
         },
         exclusive=True,
     )
     return result
 
 
-__all__ = ["ENTRY_SCHEMA", "EntryError", "evaluate_entry", "load_entry"]
+__all__ = [
+    "ENTRY_SCHEMA",
+    "EntryError",
+    "entry_prediction_scope",
+    "evaluate_entry",
+    "load_entry",
+]

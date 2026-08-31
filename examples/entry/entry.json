@@ -5,6 +5,7 @@
   "method_name": "Example method",
   "contact_email": "participant@example.org",
   "split_id": "full",
+  "prediction_scope": "surface_and_volume",
   "test_case_ids": [
     "run_11",
     "run_12",

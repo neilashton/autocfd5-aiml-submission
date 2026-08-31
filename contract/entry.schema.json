@@ -83,6 +83,14 @@
       "type": "string",
       "pattern": "^[a-z0-9][a-z0-9._-]{0,79}$"
     },
+    "prediction_scope": {
+      "description": "Prediction supports supplied for every test case. Omission preserves the legacy surface_and_volume behavior.",
+      "enum": [
+        "surface_and_volume",
+        "surface_only"
+      ],
+      "default": "surface_and_volume"
+    },
     "train_case_ids": {
       "description": "Required only for a non-official split; complete ordered training membership.",
       "type": "array",

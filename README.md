@@ -5,7 +5,12 @@ This public repository is the participant route for evaluating predictions from 
 For the complete participant procedure, use the [formatted submission instructions](output/pdf/AutoCFD5_AIML_Submission_Instructions.pdf).
 
 > [!IMPORTANT]
-> **Complete native-cell field coverage is required.** For every selected test case, the evaluator input must contain predictions for every cell of both the pinned surface VTP and the pinned volume VTU. The surface requires `pMeanTrim` and `wallShearStressMeanTrim`; the volume requires `pMeanTrim` and `UMeanTrim`. Inference may be performed in chunks or on another representation, but the final export must map back to every native `raw_cell_id` exactly once, with no missing or duplicate cells. Surface-only, volume-only, sampled, or profiles-only results are not accepted.
+> **Every accepted entry must predict the complete native surface.** For every selected test case, export `pMeanTrim` and `wallShearStressMeanTrim` for every cell of the pinned surface VTP. Choose one `prediction_scope` in `entry.json`:
+>
+> - `surface_and_volume` (the legacy default): also export `pMeanTrim` and `UMeanTrim` for every cell of the pinned volume VTU. All nine score components are available and the maximum overall score is 100.
+> - `surface_only`: omit the volume prediction directory. Volume pressure, volume velocity, and velocity-profile component scores are fixed at zero; their scientific metric values are not fabricated, weights are not renormalized, and the maximum overall score is 60.
+>
+> In either scope, inference may run in chunks or on another representation, but each supplied field must map back to every native `raw_cell_id` exactly once, with no missing or duplicate cells. Volume-only, sampled, partial-surface, or profiles-only results are not accepted.
 
 The scientific calculation is frozen:
 
@@ -16,9 +21,9 @@ The scientific calculation is frozen:
 - raw stair-stepped profile samples retained without smoothing;
 - explicit unsupported intervals retained as separate segments and never joined;
 - Cp scored using arc length, but displayed using physical streamwise `x`;
-- four-region surface and volume reports derived from the submitted native-cell fields, with zero scoring weight.
+- four-region surface reports for every entry and four-region volume reports for full-field entries, derived from submitted native-cell fields with zero scoring weight.
 
-The regional reports reuse the predictions already supplied for the full-field evaluation, so they require no new inference or participant fields. They do not change the prediction format, official metric values, scoring caps, weights, component scores, or overall score. The exact report-only partitions are frozen in [`contract/regional-diagnostics.json`](contract/regional-diagnostics.json), and complete-split results retain their compact aggregate in `regional-diagnostics.json`.
+The regional reports reuse the predictions supplied in the selected scope, so they require no new inference or participant fields. They do not change official metric values, scoring caps, weights, component scores, or overall score. The exact report-only partitions are frozen in [`contract/regional-diagnostics.json`](contract/regional-diagnostics.json), and complete-split results retain their compact aggregate in `regional-diagnostics.json`.
 
 The scored metric IDs, numerical outputs, compact `result.json`, and 40-series profile output remain compatible with the approved DrivAerML evaluator. Only repository-specific administrative envelopes, identities, and report-only diagnostics differ.
 
@@ -46,7 +51,7 @@ Use Linux, Python 3.12, NumPy 2.2.6, and VTK 9.5.2. A container is provided beca
 ```bash
 git clone https://github.com/neilashton/autocfd5-aiml-submission.git
 cd autocfd5-aiml-submission
-git checkout evaluator-v1.1.3
+git checkout evaluator-v1.1.4
 python3.12 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
@@ -60,6 +65,13 @@ Prepare predictions using [the native chunk format](docs/PREDICTION_FORMAT.md), 
 autocfd5-aiml validate-entry examples/entry
 ```
 
+Set `prediction_scope` explicitly to `surface_and_volume` or `surface_only`. Existing entries that omit it retain the full-field `surface_and_volume` behavior. To fetch only the native inputs needed by a surface-only entry, set the scope first and use:
+
+```bash
+autocfd5-aiml fetch-data --entry-root my-entry \
+  --destination /data/drivaerml --dry-run
+```
+
 Evaluate the complete selected test split:
 
 ```bash
@@ -70,7 +82,7 @@ autocfd5-aiml evaluate-entry my-entry \
   --resume
 ```
 
-One case can be checked during development with `evaluate-case`. It provides field errors, forces, profile losses, and zero-weight regional reports, but an official R2 or overall score requires every case in the selected test split.
+One case can be checked during development with `evaluate-case`. For a surface-only case, add `--prediction-scope surface_only` and omit `--volume-manifest`. It provides available field errors, forces, profile losses, explicit unavailable components, and zero-weight regional reports, but an official R2 or overall score requires every case in the selected test split.
 
 Inspect any evaluated case locally:
 
@@ -103,8 +115,8 @@ Questions can be sent to `neil@neilashton.co.uk` or `astridwalle@cfdsolutions.ne
 - Profile support index SHA-256: `f47f8c3ed7a56632b0c02a3aec793e4cd823d5d04d5264d00fcd419bf11c0f4f`
 - Report-only regional diagnostics contract SHA-256: `2bfd372817989112642056e4c76cfb418dbdcee445c57ee20ca37ee9ca158583`
 
-The native dataset is very large. `autocfd5-aiml fetch-data --split-id full --destination /data/drivaerml --dry-run` shows the exact pinned files before downloading them. For a custom split, use `autocfd5-aiml fetch-data --entry-root my-entry --destination /data/drivaerml --dry-run`.
+The native dataset is very large. `autocfd5-aiml fetch-data --split-id full --prediction-scope surface_and_volume --destination /data/drivaerml --dry-run` shows the exact pinned files before downloading them. Use `--prediction-scope surface_only` to omit native volume parts, or use `--entry-root my-entry` to read both the case membership and scope from `entry.json`.
 
-The v1.1.3 volume-region pass uses temporary raw geometry spools and processes topology in blocks of at most one million cells. Allow roughly 9 GiB of local temporary space per concurrently evaluated case; set `TMPDIR` to suitable local scratch when `/tmp` is too small. Temporary files are removed on both success and failure.
+For `surface_and_volume`, the v1.1.4 volume-region pass uses temporary raw geometry spools and processes topology in blocks of at most one million cells. Allow roughly 9 GiB of local temporary space per concurrently evaluated case; set `TMPDIR` to suitable local scratch when `/tmp` is too small. Temporary files are removed on both success and failure. Surface-only evaluation never downloads or opens the native volume and does not need this volume scratch allowance.
 
 Further detail is in [the scientific method](docs/SCIENTIFIC_METHOD.md) and [the organiser checklist](docs/ORGANISER_CHECKLIST.md).
