@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-EVALUATOR_VERSION = "autocfd5-aiml-evaluator-v1.1.4"
+EVALUATOR_VERSION = "autocfd5-aiml-evaluator-v1.1.5"
 DATASET_REPOSITORY = "neashton/drivaerml"
 DATASET_REVISION = "7a5c0948ce27be709b1116a3a190f806e7a8f79f"
 DATASET_TYPE = "dataset"
@@ -21,6 +21,18 @@ PREDICTION_SCOPE_FULL = "surface_and_volume"
 PREDICTION_SCOPE_SURFACE_ONLY = "surface_only"
 PREDICTION_SCOPES = frozenset(
     {PREDICTION_SCOPE_FULL, PREDICTION_SCOPE_SURFACE_ONLY}
+)
+
+# Force scoring has two deliberately explicit routes.  Native surface fields
+# remain mandatory in both cases, so field, Cp/profile, and regional checks are
+# never bypassed.
+FORCE_PREDICTION_SOURCE_FIELD_INTEGRATED = "field_integrated"
+FORCE_PREDICTION_SOURCE_DIRECT_COEFFICIENTS = "direct_coefficients"
+FORCE_PREDICTION_SOURCES = frozenset(
+    {
+        FORCE_PREDICTION_SOURCE_FIELD_INTEGRATED,
+        FORCE_PREDICTION_SOURCE_DIRECT_COEFFICIENTS,
+    }
 )
 
 SURFACE_ONLY_UNAVAILABLE_COMPONENTS = frozenset(

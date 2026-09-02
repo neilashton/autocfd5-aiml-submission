@@ -21,7 +21,7 @@ The four field errors are complete-case relative L2 percentages, macro-averaged 
 | Volume velocity, equal native cells | 0.15 | 12% |
 | Volume pressure, equal native cells | 0.10 | 15% |
 
-Forces are integrated from the predicted native surface fields. Drag R2 has weight 0.15, lift R2 has weight 0.05, and pitch-moment R2 has weight 0.05. Pitch truth is `(Clf - Clr) / 2`, matching the approved constant-reference force table.
+The default force route integrates coefficients from the predicted native surface fields. Alternatively, an entry may explicitly declare the `direct_coefficients` route and supply direct `Cd`, `Clf`, and `Clr` for every test case in the fixed constant-reference convention. The evaluator derives `Cl = Clf + Clr` and `CmPitch = (Clf - Clr) / 2`; it does not accept participant-supplied `Cl` or pitch values. In either route, drag R2 has weight 0.15, lift R2 has weight 0.05, and pitch-moment R2 has weight 0.05. Surface fields remain mandatory, and their integrated coefficients are retained as a report-only consistency diagnostic when direct coefficients are selected.
 
 ## Regional field reports
 

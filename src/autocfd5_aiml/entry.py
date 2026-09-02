@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import platform
 import re
+import shutil
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,9 @@ from .case_evaluator import CASE_RESULT_SCHEMA, evaluate_case
 from .constants import (
     DATASET_REVISION,
     EVALUATOR_VERSION,
+    FORCE_PREDICTION_SOURCE_DIRECT_COEFFICIENTS,
+    FORCE_PREDICTION_SOURCE_FIELD_INTEGRATED,
+    FORCE_PREDICTION_SOURCES,
     PREDICTION_SCOPE_FULL,
     PREDICTION_SCOPE_SURFACE_ONLY,
     PREDICTION_SCOPES,
@@ -20,6 +24,11 @@ from .constants import (
     SCORING_CONTRACT_SHA256,
     SUPPORT_INDEX_SHA256,
     contract_root,
+)
+from .direct_forces import (
+    DIRECT_FORCE_FILE_NAME,
+    DirectForceError,
+    load_direct_force_coefficients,
 )
 from .jsonio import read_json, sha256_file, write_json
 from .regional_aggregate import (
@@ -40,6 +49,7 @@ _ENTRY_KEYS = {
     "contact_email",
     "split_id",
     "prediction_scope",
+    "force_prediction_source",
     "train_case_ids",
     "validation_case_ids",
     "test_case_ids",
@@ -58,6 +68,20 @@ def entry_prediction_scope(entry: Mapping[str, Any]) -> str:
     if value not in PREDICTION_SCOPES:
         raise EntryError(
             "prediction_scope must be 'surface_and_volume' or 'surface_only'"
+        )
+    return str(value)
+
+
+def entry_force_prediction_source(entry: Mapping[str, Any]) -> str:
+    """Return the declared force route, retaining pre-v1.1.5 field behavior."""
+
+    value = entry.get(
+        "force_prediction_source", FORCE_PREDICTION_SOURCE_FIELD_INTEGRATED
+    )
+    if value not in FORCE_PREDICTION_SOURCES:
+        raise EntryError(
+            "force_prediction_source must be 'field_integrated' or "
+            "'direct_coefficients'"
         )
     return str(value)
 
@@ -104,6 +128,7 @@ def load_entry(path: Path | str) -> dict[str, Any]:
     required = _ENTRY_KEYS - {
         "prediction_artifact",
         "prediction_scope",
+        "force_prediction_source",
         "train_case_ids",
         "validation_case_ids",
     }
@@ -122,6 +147,7 @@ def load_entry(path: Path | str) -> dict[str, Any]:
     if not isinstance(split_id, str) or _SAFE_ID.fullmatch(split_id) is None:
         raise EntryError("split_id is invalid")
     entry_prediction_scope(document)
+    entry_force_prediction_source(document)
     test_case_ids = _case_id_array(document.get("test_case_ids"), "test_case_ids")
     official_split_path = contract_root() / "splits" / f"{split_id}.json"
     custom_fields = {"train_case_ids", "validation_case_ids"} & set(document)
@@ -170,6 +196,109 @@ def load_entry(path: Path | str) -> dict[str, Any]:
         ):
             raise EntryError("prediction_artifact requires a private URL, size and SHA-256")
     return document
+
+
+def _field_force_coefficients(case_result: Mapping[str, Any], case_id: str) -> dict[str, Any]:
+    core = case_result.get("core")
+    if not isinstance(core, Mapping):
+        raise EntryError(f"{case_id} has no core force reduction")
+    coefficients = core.get("force_coefficients")
+    if not isinstance(coefficients, Mapping):
+        raise EntryError(f"{case_id} has no integrated force coefficients")
+    required = ("Cd", "Cl", "CmPitch", "Clf", "Clr")
+    if any(key not in coefficients for key in required):
+        raise EntryError(f"{case_id} integrated force coefficients are incomplete")
+    return {key: coefficients[key] for key in required}
+
+
+def _direct_force_input_path(source: Path, case_id: str) -> Path:
+    return source / "cases" / case_id / DIRECT_FORCE_FILE_NAME
+
+
+def _copy_direct_force_input(
+    *, source: Path, destination: Path, case_id: str
+) -> tuple[dict[str, float], dict[str, str]]:
+    input_path = _direct_force_input_path(source, case_id)
+    try:
+        coefficients = load_direct_force_coefficients(
+            input_path, expected_case_id=case_id
+        )
+        digest = sha256_file(input_path)
+    except (OSError, DirectForceError) as error:
+        raise EntryError(f"{case_id} direct force input is invalid: {error}") from error
+    target = destination / "direct-forces" / f"{case_id}.json"
+    target.parent.mkdir(exist_ok=True)
+    if target.exists():
+        if sha256_file(target) != digest:
+            raise EntryError(f"retained direct force input differs for {case_id}")
+    else:
+        shutil.copyfile(input_path, target)
+    return coefficients, {
+        "path": f"direct-forces/{case_id}.json",
+        "sha256": digest,
+    }
+
+
+def _attach_force_prediction(
+    case_result: dict[str, Any],
+    *,
+    force_prediction_source: str,
+    source: Path,
+    destination: Path,
+    case_id: str,
+) -> None:
+    field_coefficients = _field_force_coefficients(case_result, case_id)
+    prediction: dict[str, Any] = {
+        "source": force_prediction_source,
+        "field_integrated_force_coefficients": field_coefficients,
+    }
+    if force_prediction_source == FORCE_PREDICTION_SOURCE_DIRECT_COEFFICIENTS:
+        direct_coefficients, direct_input = _copy_direct_force_input(
+            source=source, destination=destination, case_id=case_id
+        )
+        prediction["scoring_force_coefficients"] = direct_coefficients
+        prediction["direct_input"] = direct_input
+    else:
+        prediction["scoring_force_coefficients"] = field_coefficients
+    case_result["force_prediction"] = prediction
+
+
+def _validate_retained_force_prediction(
+    case_result: Mapping[str, Any],
+    *,
+    force_prediction_source: str,
+    source: Path,
+    destination: Path,
+    case_id: str,
+) -> None:
+    prediction = case_result.get("force_prediction")
+    if not isinstance(prediction, Mapping) or prediction.get("source") != force_prediction_source:
+        raise EntryError(f"retained work result force route differs for {case_id}")
+    _field_force_coefficients(case_result, case_id)
+    if force_prediction_source != FORCE_PREDICTION_SOURCE_DIRECT_COEFFICIENTS:
+        return
+    direct_input = prediction.get("direct_input")
+    if (
+        not isinstance(direct_input, Mapping)
+        or direct_input.get("path") != f"direct-forces/{case_id}.json"
+        or not isinstance(direct_input.get("sha256"), str)
+    ):
+        raise EntryError(f"retained direct force input differs for {case_id}")
+    try:
+        source_digest = sha256_file(_direct_force_input_path(source, case_id))
+        target_digest = sha256_file(destination / str(direct_input["path"]))
+    except OSError as error:
+        raise EntryError(f"retained direct force input is missing for {case_id}") from error
+    if source_digest != direct_input["sha256"] or target_digest != source_digest:
+        raise EntryError(f"retained direct force input differs for {case_id}")
+    try:
+        expected = load_direct_force_coefficients(
+            _direct_force_input_path(source, case_id), expected_case_id=case_id
+        )
+    except (OSError, DirectForceError) as error:
+        raise EntryError(f"retained direct force input is invalid for {case_id}") from error
+    if prediction.get("scoring_force_coefficients") != expected:
+        raise EntryError(f"retained direct force coefficients differ for {case_id}")
 
 
 def _custom_split_document(entry: dict[str, Any]) -> dict[str, Any]:
@@ -279,6 +408,7 @@ def evaluate_entry(
     entry_path = source / "entry.json"
     entry = load_entry(entry_path)
     prediction_scope = entry_prediction_scope(entry)
+    force_prediction_source = entry_force_prediction_source(entry)
     if (destination / "result.json").exists():
         raise EntryError("result.json already exists; choose a new output directory")
     destination.mkdir(parents=True, exist_ok=True)
@@ -322,6 +452,13 @@ def evaluate_entry(
                 raise EntryError(
                     f"retained work result has invalid regional diagnostics for {case_id}: {error}"
                 ) from error
+            _validate_retained_force_prediction(
+                case_result,
+                force_prediction_source=force_prediction_source,
+                source=source,
+                destination=destination,
+                case_id=case_id,
+            )
         else:
             case_root = source / "cases" / case_id
             case_result = evaluate_case(
@@ -338,6 +475,13 @@ def evaluate_entry(
                 prediction_scope=prediction_scope,
                 maximum_prediction_chunk_rows=maximum_prediction_chunk_rows,
                 io_chunk_bytes=io_chunk_bytes,
+            )
+            _attach_force_prediction(
+                case_result,
+                force_prediction_source=force_prediction_source,
+                source=source,
+                destination=destination,
+                case_id=case_id,
             )
             write_json(work_path, case_result, exclusive=True)
         documents.append(case_result)
@@ -424,6 +568,7 @@ def evaluate_entry(
         key: entry[key] for key in ("submission_id", "method_name", "contact_email")
     }
     result["submission"]["prediction_scope"] = prediction_scope
+    result["submission"]["force_prediction_source"] = force_prediction_source
     if "prediction_artifact" in entry:
         result["submission"]["prediction_artifact"] = entry["prediction_artifact"]
     result["inputs"] = {
@@ -450,6 +595,7 @@ def evaluate_entry(
             "runtime": _runtime(),
             "case_count": len(documents),
             "prediction_scope": prediction_scope,
+            "force_prediction_source": force_prediction_source,
             "all_supplied_native_and_prediction_hashes_verified": True,
             "unavailable_metric_values_fabricated": False,
             "component_weights_renormalized": False,
@@ -469,6 +615,7 @@ __all__ = [
     "ENTRY_SCHEMA",
     "EntryError",
     "entry_prediction_scope",
+    "entry_force_prediction_source",
     "evaluate_entry",
     "load_entry",
 ]

@@ -7,6 +7,9 @@ from pathlib import Path
 from typing import Any
 
 from .constants import (
+    FORCE_PREDICTION_SOURCE_DIRECT_COEFFICIENTS,
+    FORCE_PREDICTION_SOURCE_FIELD_INTEGRATED,
+    FORCE_PREDICTION_SOURCES,
     PREDICTION_SCOPE_FULL,
     PREDICTION_SCOPE_SURFACE_ONLY,
     PREDICTION_SCOPES,
@@ -29,6 +32,7 @@ PRIMARY_FIELD_METRICS = (
     "volume_velocity_rel_l2",
     "volume_pressure_rel_l2",
 )
+_FORCE_COEFFICIENT_IDS = ("Cd", "Cl", "CmPitch", "Clf", "Clr")
 
 
 class AggregateError(ValueError):
@@ -112,6 +116,57 @@ def _split(path: Path | str) -> tuple[dict[str, Any], tuple[str, ...], str]:
     return document, tuple(case_ids), sha256_file(path)
 
 
+def _force_coefficients(
+    value: object, *, case_id: str, label: str
+) -> dict[str, float]:
+    if not isinstance(value, Mapping):
+        raise AggregateError(f"{case_id} has no {label} force coefficients")
+    return {
+        coefficient: _finite(value.get(coefficient), f"{case_id}.{coefficient}")
+        for coefficient in _FORCE_COEFFICIENT_IDS
+    }
+
+
+def _case_force_predictions(
+    case: Mapping[str, Any], *, case_id: str
+) -> tuple[str, dict[str, float], dict[str, float]]:
+    """Return declared scoring values and the always-retained field reduction.
+
+    Missing ``force_prediction`` is accepted only here for v1.1.4 compact
+    results.  New evaluator output always carries the explicit envelope.
+    """
+
+    core = case.get("core")
+    if not isinstance(core, Mapping):
+        raise AggregateError(f"{case_id} has no core result")
+    field_integrated = _force_coefficients(
+        core.get("force_coefficients"), case_id=case_id, label="integrated"
+    )
+    prediction = case.get("force_prediction")
+    if prediction is None:
+        return FORCE_PREDICTION_SOURCE_FIELD_INTEGRATED, field_integrated, field_integrated
+    if not isinstance(prediction, Mapping):
+        raise AggregateError(f"{case_id} force prediction envelope differs")
+    source = prediction.get("source")
+    if source not in FORCE_PREDICTION_SOURCES:
+        raise AggregateError(f"{case_id} force prediction source differs")
+    retained_field = _force_coefficients(
+        prediction.get("field_integrated_force_coefficients"),
+        case_id=case_id,
+        label="retained integrated",
+    )
+    if retained_field != field_integrated:
+        raise AggregateError(f"{case_id} retained integrated force coefficients differ")
+    selected = _force_coefficients(
+        prediction.get("scoring_force_coefficients"),
+        case_id=case_id,
+        label="scoring",
+    )
+    if source == FORCE_PREDICTION_SOURCE_FIELD_INTEGRATED and selected != field_integrated:
+        raise AggregateError(f"{case_id} field-integrated scoring coefficients differ")
+    return str(source), selected, field_integrated
+
+
 def aggregate_cases(
     case_documents: Sequence[Mapping[str, Any]],
     *,
@@ -168,19 +223,26 @@ def aggregate_cases(
         )
 
     truth_table = load_force_truth(force_truth_path)
-    force_truth: dict[str, list[float]] = {key: [] for key in ("Cd", "Cl", "CmPitch", "Clf", "Clr")}
+    force_truth: dict[str, list[float]] = {key: [] for key in _FORCE_COEFFICIENT_IDS}
     force_prediction: dict[str, list[float]] = {key: [] for key in force_truth}
+    field_force_prediction: dict[str, list[float]] = {
+        key: [] for key in force_truth
+    }
+    force_sources: set[str] = set()
     for case_id, case in zip(case_ids, ordered, strict=True):
         if case_id not in truth_table:
             raise AggregateError(f"force truth has no row for {case_id}")
         truth = truth_table[case_id]
-        predicted = case.get("core", {}).get("force_coefficients")
-        if not isinstance(predicted, Mapping):
-            raise AggregateError(f"{case_id} has no force coefficients")
+        source, predicted, field_predicted = _case_force_predictions(case, case_id=case_id)
+        force_sources.add(source)
         mapping = {"Cd": "cd", "Cl": "cl", "CmPitch": "c_pitch", "Clf": "clf", "Clr": "clr"}
         for target, column in mapping.items():
             force_truth[target].append(truth[column])
-            force_prediction[target].append(_finite(predicted.get(target), f"{case_id}.{target}"))
+            force_prediction[target].append(predicted[target])
+            field_force_prediction[target].append(field_predicted[target])
+    if len(force_sources) != 1:
+        raise AggregateError("case results use different force prediction sources")
+    force_prediction_source = force_sources.pop()
 
     force_errors = {
         target: [
@@ -189,18 +251,27 @@ def aggregate_cases(
         ]
         for target in force_truth
     }
+    field_force_errors = {
+        target: [
+            predicted - truth
+            for truth, predicted in zip(
+                force_truth[target], field_force_prediction[target], strict=True
+            )
+        ]
+        for target in force_truth
+    }
     force_values = {
-        "field_integrated_cd_rmse": _rmse(force_errors["Cd"]),
-        "field_integrated_cl_rmse": _rmse(force_errors["Cl"]),
-        "field_integrated_cmpitch_rmse": _rmse(force_errors["CmPitch"]),
-        "field_integrated_clf_rmse": _rmse(force_errors["Clf"]),
-        "field_integrated_clr_rmse": _rmse(force_errors["Clr"]),
+        "field_integrated_cd_rmse": _rmse(field_force_errors["Cd"]),
+        "field_integrated_cl_rmse": _rmse(field_force_errors["Cl"]),
+        "field_integrated_cmpitch_rmse": _rmse(field_force_errors["CmPitch"]),
+        "field_integrated_clf_rmse": _rmse(field_force_errors["Clf"]),
+        "field_integrated_clr_rmse": _rmse(field_force_errors["Clr"]),
         "field_integrated_lift_closure_max_abs": max(
             abs(cl - (clf + clr))
             for cl, clf, clr in zip(
-                force_prediction["Cl"],
-                force_prediction["Clf"],
-                force_prediction["Clr"],
+                field_force_prediction["Cl"],
+                field_force_prediction["Clf"],
+                field_force_prediction["Clr"],
                 strict=True,
             )
         ),
@@ -208,6 +279,44 @@ def aggregate_cases(
         "cl_r2": _r2(force_truth["Cl"], force_prediction["Cl"]),
         "c_pitch_r2": _r2(force_truth["CmPitch"], force_prediction["CmPitch"]),
     }
+    if force_prediction_source == FORCE_PREDICTION_SOURCE_DIRECT_COEFFICIENTS:
+        force_values.update(
+            {
+                "direct_force_cd_rmse": _rmse(force_errors["Cd"]),
+                "direct_force_cl_rmse": _rmse(force_errors["Cl"]),
+                "direct_force_cmpitch_rmse": _rmse(force_errors["CmPitch"]),
+                "direct_vs_field_cd_rmse": _rmse(
+                    [
+                        direct - field
+                        for direct, field in zip(
+                            force_prediction["Cd"],
+                            field_force_prediction["Cd"],
+                            strict=True,
+                        )
+                    ]
+                ),
+                "direct_vs_field_cl_rmse": _rmse(
+                    [
+                        direct - field
+                        for direct, field in zip(
+                            force_prediction["Cl"],
+                            field_force_prediction["Cl"],
+                            strict=True,
+                        )
+                    ]
+                ),
+                "direct_vs_field_cmpitch_rmse": _rmse(
+                    [
+                        direct - field
+                        for direct, field in zip(
+                            force_prediction["CmPitch"],
+                            field_force_prediction["CmPitch"],
+                            strict=True,
+                        )
+                    ]
+                ),
+            }
+        )
 
     velocity_blocks: list[list[float]] = []
     cp_blocks: list[list[float]] = []
@@ -302,6 +411,7 @@ def aggregate_cases(
         "status": "complete",
         "dataset_id": "drivaerml",
         "prediction_scope": prediction_scope,
+        "force_prediction_source": force_prediction_source,
         "split": {
             "split_id": split["split_id"],
             "case_set_id": split["case_set_id"],
@@ -330,6 +440,7 @@ def aggregate_cases(
             "constant_profiles_scored": True,
             "relative_profiles_weight": 0.0,
             "prediction_scope": prediction_scope,
+            "force_prediction_source": force_prediction_source,
             "unavailable_component_metric_ids": list(unavailable_metric_ids),
             "unavailable_component_score": 0.0,
             "component_weights_renormalized": False,

@@ -14,6 +14,8 @@ from autocfd5_aiml.aggregate import aggregate_cases, load_force_truth
 from autocfd5_aiml.constants import (
     DATASET_REVISION,
     EVALUATOR_VERSION,
+    FORCE_PREDICTION_SOURCE_DIRECT_COEFFICIENTS,
+    FORCE_PREDICTION_SOURCE_FIELD_INTEGRATED,
     PREDICTION_SCOPE_FULL,
     PREDICTION_SCOPE_SURFACE_ONLY,
     REGIONAL_DIAGNOSTICS_CONTRACT_SHA256,
@@ -22,6 +24,10 @@ from autocfd5_aiml.constants import (
     contract_root,
 )
 from autocfd5_aiml.core.evaluator import OFFICIAL_NATIVE_SOURCE_PIN_SHA256
+from autocfd5_aiml.direct_forces import (
+    DIRECT_FORCE_CONVENTION,
+    DIRECT_FORCE_SCHEMA,
+)
 from autocfd5_aiml.jsonio import read_json, sha256_file, write_json
 from autocfd5_aiml.packaging import PackageError, create_package, verify_package
 from autocfd5_aiml.regional_aggregate import aggregate_regional_diagnostics
@@ -70,7 +76,11 @@ def _recompute_published_scores(result: dict[str, object]) -> None:
 
 
 def _result_tree(
-    root: Path, *, custom: bool = False, surface_only: bool = False
+    root: Path,
+    *,
+    custom: bool = False,
+    surface_only: bool = False,
+    direct_coefficients: bool = False,
 ) -> None:
     split_path = contract_root() / "splits" / "medium.json"
     split = read_json(split_path)
@@ -111,6 +121,42 @@ def _result_tree(
             "Clf": truth["clf"],
             "Clr": truth["clr"],
         }
+        field_coefficients = regional_document["core"]["force_coefficients"]
+        if direct_coefficients:
+            direct_path = root / "direct-forces" / f"{case_id}.json"
+            direct_identity = write_json(
+                direct_path,
+                {
+                    "schema": DIRECT_FORCE_SCHEMA,
+                    "schema_version": 1,
+                    "case_id": case_id,
+                    "coefficient_convention": DIRECT_FORCE_CONVENTION,
+                    "Cd": truth["cd"],
+                    "Clf": truth["clf"],
+                    "Clr": truth["clr"],
+                },
+            )
+            regional_document["force_prediction"] = {
+                "source": FORCE_PREDICTION_SOURCE_DIRECT_COEFFICIENTS,
+                "field_integrated_force_coefficients": field_coefficients,
+                "scoring_force_coefficients": {
+                    "Cd": truth["cd"],
+                    "Cl": truth["clf"] + truth["clr"],
+                    "CmPitch": (truth["clf"] - truth["clr"]) / 2.0,
+                    "Clf": truth["clf"],
+                    "Clr": truth["clr"],
+                },
+                "direct_input": {
+                    "path": f"direct-forces/{case_id}.json",
+                    "sha256": direct_identity["sha256"],
+                },
+            }
+        else:
+            regional_document["force_prediction"] = {
+                "source": FORCE_PREDICTION_SOURCE_FIELD_INTEGRATED,
+                "field_integrated_force_coefficients": field_coefficients,
+                "scoring_force_coefficients": field_coefficients,
+            }
         regional_document["profiles"] = {
             "metric_statistics": _profile_statistics(
                 index, surface_only=surface_only
@@ -133,6 +179,7 @@ def _result_tree(
                 "case_id": case_id,
                 "prediction_scope": prediction_scope,
                 "core": regional_document["core"],
+                "force_prediction": regional_document["force_prediction"],
                 "profiles": regional_document["profiles"],
             },
         )
@@ -202,6 +249,7 @@ def _result_tree(
     result["submission"] = {
         "submission_id": "assigned-submission-id",
         "prediction_scope": prediction_scope,
+        "force_prediction_source": result["force_prediction_source"],
     }
     result["evaluator"] = {"version": EVALUATOR_VERSION}
     result["inputs"] = {
@@ -262,6 +310,35 @@ def test_custom_split_is_packaged_and_verifiable(tmp_path: Path) -> None:
     verified = verify_package(tmp_path / "custom.zip")
     assert created["entry_count"] == 55
     assert verified["entry_count"] == 55
+
+
+def test_direct_force_package_is_verifiable_and_scores_the_declared_coefficients(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "direct-result"
+    _result_tree(root, direct_coefficients=True)
+    result = read_json(root / "result.json")
+    assert result["force_prediction_source"] == FORCE_PREDICTION_SOURCE_DIRECT_COEFFICIENTS
+    assert result["metric_values"]["cd_r2"] == 1.0
+    assert result["metric_values"]["cl_r2"] == 1.0
+    assert result["metric_values"]["c_pitch_r2"] == 1.0
+    created = create_package(root, tmp_path / "direct.zip")
+    verified = verify_package(tmp_path / "direct.zip")
+    assert created["entry_count"] == 104
+    assert verified["submission_id"] == "assigned-submission-id"
+
+
+def test_direct_force_package_rejects_changed_direct_input(tmp_path: Path) -> None:
+    root = tmp_path / "direct-result"
+    _result_tree(root, direct_coefficients=True)
+    path = root / "direct-forces" / "run_11.json"
+    document = read_json(path)
+    document["Cd"] += 0.01
+    write_json(path, document)
+    package = tmp_path / "changed-direct.zip"
+    create_package(root, package)
+    with pytest.raises(PackageError, match="direct force identity"):
+        verify_package(package)
 
 
 def test_package_refuses_overwrite(tmp_path: Path) -> None:

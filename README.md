@@ -51,7 +51,7 @@ Use Linux, Python 3.12, NumPy 2.2.6, and VTK 9.5.2. A container is provided beca
 ```bash
 git clone https://github.com/neilashton/autocfd5-aiml-submission.git
 cd autocfd5-aiml-submission
-git checkout evaluator-v1.1.4
+git checkout evaluator-v1.1.5
 python3.12 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
@@ -71,6 +71,28 @@ Set `prediction_scope` explicitly to `surface_and_volume` or `surface_only`. Exi
 autocfd5-aiml fetch-data --entry-root my-entry \
   --destination /data/drivaerml --dry-run
 ```
+
+### Optional direct force coefficients
+
+The default `"force_prediction_source": "field_integrated"` scores force coefficients reduced from your submitted surface fields, exactly as in v1.1.4. If your method also predicts force coefficients directly, set `"force_prediction_source": "direct_coefficients"` in `entry.json` and add this small complete file for every test case:
+
+```text
+my-entry/cases/run_419/direct-force-coefficients.json
+```
+
+```json
+{
+  "schema": "autocfd5-aiml-drivaerml-direct-force-v1",
+  "schema_version": 1,
+  "case_id": "run_419",
+  "coefficient_convention": "drivaerml-constant-reference-v1",
+  "Cd": 0.21,
+  "Clf": -0.061,
+  "Clr": 0.046
+}
+```
+
+Use the evaluator's fixed constant-reference convention. Supply only `Cd`, `Clf`, and `Clr`; it derives `Cl = Clf + Clr` and `CmPitch = (Clf - Clr) / 2`. The declared direct values are used only for the existing three force R2 components. The native-field force reduction is still calculated, packaged, and reported alongside it. All field, profile, and regional diagnostics continue to use the submitted native fields. Existing v1.1.4 ZIPs remain valid; moving to this route does not require repeating field inference.
 
 Evaluate the complete selected test split:
 
@@ -117,6 +139,6 @@ Questions can be sent to `neil@neilashton.co.uk` or `astridwalle@cfdsolutions.ne
 
 The native dataset is very large. `autocfd5-aiml fetch-data --split-id full --prediction-scope surface_and_volume --destination /data/drivaerml --dry-run` shows the exact pinned files before downloading them. Use `--prediction-scope surface_only` to omit native volume parts, or use `--entry-root my-entry` to read both the case membership and scope from `entry.json`.
 
-For `surface_and_volume`, the v1.1.4 volume-region pass uses temporary raw geometry spools and processes topology in blocks of at most one million cells. Allow roughly 9 GiB of local temporary space per concurrently evaluated case; set `TMPDIR` to suitable local scratch when `/tmp` is too small. Temporary files are removed on both success and failure. Surface-only evaluation never downloads or opens the native volume and does not need this volume scratch allowance.
+For `surface_and_volume`, the v1.1.5 volume-region pass uses temporary raw geometry spools and processes topology in blocks of at most one million cells. Allow roughly 9 GiB of local temporary space per concurrently evaluated case; set `TMPDIR` to suitable local scratch when `/tmp` is too small. Temporary files are removed on both success and failure. Surface-only evaluation never downloads or opens the native volume and does not need this volume scratch allowance.
 
 Further detail is in [the scientific method](docs/SCIENTIFIC_METHOD.md) and [the organiser checklist](docs/ORGANISER_CHECKLIST.md).

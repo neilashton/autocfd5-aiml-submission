@@ -91,6 +91,14 @@
       ],
       "default": "surface_and_volume"
     },
+    "force_prediction_source": {
+      "description": "How the three scored force coefficients are supplied. Omission preserves field_integrated behaviour.",
+      "enum": [
+        "field_integrated",
+        "direct_coefficients"
+      ],
+      "default": "field_integrated"
+    },
     "train_case_ids": {
       "description": "Required only for a non-official split; complete ordered training membership.",
       "type": "array",

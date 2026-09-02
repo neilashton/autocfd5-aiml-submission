@@ -1,0 +1,9 @@
+{
+  "schema": "autocfd5-aiml-drivaerml-direct-force-v1",
+  "schema_version": 1,
+  "case_id": "run_419",
+  "coefficient_convention": "drivaerml-constant-reference-v1",
+  "Cd": 0.21,
+  "Clf": -0.061,
+  "Clr": 0.046
+}

@@ -5,10 +5,17 @@ from pathlib import Path
 import pytest
 
 from autocfd5_aiml.constants import (
+    FORCE_PREDICTION_SOURCE_DIRECT_COEFFICIENTS,
+    FORCE_PREDICTION_SOURCE_FIELD_INTEGRATED,
     PREDICTION_SCOPE_FULL,
     PREDICTION_SCOPE_SURFACE_ONLY,
 )
-from autocfd5_aiml.entry import EntryError, entry_prediction_scope, load_entry
+from autocfd5_aiml.entry import (
+    EntryError,
+    entry_force_prediction_source,
+    entry_prediction_scope,
+    load_entry,
+)
 from autocfd5_aiml.jsonio import write_json
 
 
@@ -32,6 +39,7 @@ def test_official_example_uses_only_committee_submission_id() -> None:
     assert entry["submission_id"] == "assigned-submission-id"
     assert entry["split_id"] == "full"
     assert entry_prediction_scope(entry) == PREDICTION_SCOPE_FULL
+    assert entry_force_prediction_source(entry) == FORCE_PREDICTION_SOURCE_FIELD_INTEGRATED
     assert "train_case_ids" not in entry
     assert "validation_case_ids" not in entry
 
@@ -58,6 +66,23 @@ def test_legacy_entry_defaults_to_full_and_surface_only_is_explicit(
     invalid_path = tmp_path / "invalid" / "entry.json"
     write_json(invalid_path, invalid)
     with pytest.raises(EntryError, match="prediction_scope"):
+        load_entry(invalid_path)
+
+
+def test_direct_force_route_is_explicit_and_closed(tmp_path: Path) -> None:
+    entry = _custom_entry()
+    entry["force_prediction_source"] = FORCE_PREDICTION_SOURCE_DIRECT_COEFFICIENTS
+    path = tmp_path / "direct" / "entry.json"
+    write_json(path, entry)
+    assert entry_force_prediction_source(load_entry(path)) == (
+        FORCE_PREDICTION_SOURCE_DIRECT_COEFFICIENTS
+    )
+
+    invalid = _custom_entry()
+    invalid["force_prediction_source"] = "direct_maybe"
+    invalid_path = tmp_path / "invalid-direct" / "entry.json"
+    write_json(invalid_path, invalid)
+    with pytest.raises(EntryError, match="force_prediction_source"):
         load_entry(invalid_path)
 
 

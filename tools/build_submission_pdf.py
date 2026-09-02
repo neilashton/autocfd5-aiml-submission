@@ -53,9 +53,9 @@ DATASET_REVISION = "7a5c0948ce27be709b1116a3a190f806e7a8f79f"
 SUPPORT_ARCHIVE_SHA256 = "5ebcf744be53016bd158236d1f4af3290ff399b323c0e11a49c37ea9a6c686f6"
 SUPPORT_INDEX_SHA256 = "f47f8c3ed7a56632b0c02a3aec793e4cd823d5d04d5264d00fcd419bf11c0f4f"
 REGIONAL_CONTRACT_SHA256 = "2bfd372817989112642056e4c76cfb418dbdcee445c57ee20ca37ee9ca158583"
-EVALUATOR_TAG = "evaluator-v1.1.4"
-GUIDE_VERSION = "1.1.4"
-GUIDE_DATE = "31 August 2026"
+EVALUATOR_TAG = "evaluator-v1.1.5"
+GUIDE_VERSION = "1.1.5"
+GUIDE_DATE = "2 September 2026"
 
 
 def make_styles() -> dict[str, ParagraphStyle]:
@@ -689,7 +689,7 @@ def setup_and_inputs() -> list[Flowable]:
                 """
 git clone https://github.com/neilashton/autocfd5-aiml-submission.git
 cd autocfd5-aiml-submission
-git checkout evaluator-v1.1.4
+git checkout evaluator-v1.1.5
 
 python3.12 -m venv .venv
 source .venv/bin/activate
@@ -779,6 +779,7 @@ cp -R examples/entry my-entry
                     ["contact_email", "Email monitored by the participant."],
                     ["split_id", "Keep <font name='Courier'>full</font> for the requested baseline."],
                     ["prediction_scope", "Choose <font name='Courier'>surface_and_volume</font> or <font name='Courier'>surface_only</font>. State it explicitly; omission retains legacy full-field behaviour."],
+                    ["force_prediction_source", "Use <font name='Courier'>field_integrated</font> (default), or <font name='Courier'>direct_coefficients</font> with one complete direct-force file per test case."],
                     ["test_case_ids", "Copy the example exactly. Membership and order are both checked."],
                     ["prediction_artifact", "Optional; only for an organiser-requested private immutable raw artifact."],
                 ],
@@ -796,6 +797,7 @@ cp -R examples/entry my-entry
   "contact_email": "participant@example.org",
   "split_id": "full",
   "prediction_scope": "surface_and_volume",
+  "force_prediction_source": "field_integrated",
   "test_case_ids": [ ...copy the complete example array exactly... ]
 }
 """
@@ -843,6 +845,7 @@ my-entry/
       volume/                 # surface_and_volume only
         manifest.json
         chunks/chunk-00000.npz
+      direct-force-coefficients.json  # direct_coefficients only
     ...one directory for every case in the selected split...
 """
             ),
@@ -853,6 +856,14 @@ my-entry/
                 "dummy volume arrays. The evaluator records volume pressure, volume velocity, and "
                 "velocity profiles as unavailable and gives those components zero points.",
                 tone="orange",
+            ),
+            callout(
+                "Optional direct force route",
+                "The default <font name='Courier'>field_integrated</font> route derives coefficients from submitted surface fields. "
+                "To score direct force output, set <font name='Courier'>force_prediction_source = direct_coefficients</font> and "
+                "place <font name='Courier'>direct-force-coefficients.json</font> in every test-case directory. It supplies only "
+                "<font name='Courier'>Cd</font>, <font name='Courier'>Clf</font>, and <font name='Courier'>Clr</font> in the fixed "
+                "constant-reference convention; the evaluator derives lift and pitch. Surface fields remain mandatory.",
             ),
             para("Required NPZ arrays", "h2"),
             data_table(
@@ -876,12 +887,6 @@ my-entry/
             bullet("IDs must cover <font name='Courier'>[0, total_row_count)</font> once, with no gaps or duplicates."),
             bullet("The complete surface is mandatory in both scopes; a sampled or partial surface fails validation."),
             bullet("Use at most 1,000,000 rows per chunk unless the organisers publish another limit."),
-            para(
-                "Copy the closed manifest structure from the repository's Native prediction format "
-                "document. Preserve native resolution rather than interpolating to a convenient grid; "
-                "the evaluator hashes each NPZ before use and fails if an input changes.",
-                "small",
-            ),
             PageBreak(),
         ]
     )
@@ -937,7 +942,7 @@ autocfd5-aiml evaluate-case \\
                     ["Native identities", "Every required boundary, area, and full-field volume part matches its pinned size and SHA-256."],
                     ["Prediction coverage", "Surface IDs are complete and unique; full-field entries also have complete unique volume IDs."],
                     ["Numerics", "All prediction values and all written JSON numbers are finite."],
-                    ["Forces", "Cd, Cl, and pitch moment are integrated from the predicted native surface fields."],
+                    ["Forces", "Native surface coefficients are always integrated. Direct-route entries also supply Cd, Clf, and Clr under the fixed convention."],
                     ["Profiles", "Forty identities are retained. Surface-only entries mark all 32 velocity rows unavailable without prediction values; Cp remains available."],
                     ["Regional reports", "Surface regions are always present; volume regions appear only for full-field entries. All have zero scoring weight."],
                     ["Gaps", "Unsupported intervals remain separate segments; no line is drawn or integrated across them."],
@@ -987,7 +992,7 @@ autocfd5-aiml evaluate-entry my-entry \\
                 "If you already produced complete v1.1.2 or v1.1.3 surface and volume prediction "
                 "chunks, do not run model inference again. Keep those manifests and NPZ files, "
                 "set <font name='Courier'>prediction_scope = surface_and_volume</font>, and rerun "
-                "the v1.1.4 evaluator into a fresh output directory.",
+                "the v1.1.5 evaluator into a fresh output directory. Adding direct coefficients does not require rerunning field inference.",
             ),
             para("Output layout", "h2"),
             code_block(
@@ -999,6 +1004,7 @@ output/assigned-submission-id/
   cases/run_N.json            # compact result for each test case
   profiles/index.json         # profile prediction index
   profiles/chunk-NNN.json     # 40 series per case, eight cases per chunk
+  direct-forces/run_N.json    # copied direct input, when direct route is selected
   .work/cases/run_N.json      # resumable working data; excluded from package
 """
             ),
@@ -1037,7 +1043,8 @@ def scoring() -> list[Flowable]:
         "08 / Scientific score",
         "Nine components, one approved composite",
         "The composite keeps the approved nine fixed weights. Nominally, fields contribute 50%, "
-        "integrated forces 25%, and constant-placement profiles 25%. Relative-placement profiles "
+        "force coefficients 25%, and constant-placement profiles 25%. Entries use either field-integrated "
+        "or explicitly declared direct coefficients under the same convention. Relative-placement profiles "
         "and regional field reports remain visible zero-weight diagnostics.",
     )
     items.extend(
@@ -1060,7 +1067,7 @@ def scoring() -> list[Flowable]:
             ),
             callout(
                 "Surface-only scoring: fixed 60-point ceiling",
-                "Surface pressure, wall shear, all three surface-integrated force components, and Cp "
+                "Surface pressure, wall shear, all three force components, and Cp "
                 "remain available: together their fixed weights total 60%. Volume velocity (15%), "
                 "volume pressure (10%), and constant velocity profiles (15%) are unavailable and each "
                 "receives a transformed component score of exactly zero. Their scientific metric values "
@@ -1202,6 +1209,7 @@ def troubleshooting() -> list[Flowable]:
             bullet("[ ] The support and native dataset identities verified automatically."),
             bullet("[ ] My <font name='Courier'>entry.json</font> uses the submission ID sent by the AutoCFD organising committee and the official Full split."),
             bullet("[ ] I declared one prediction scope. Every selected case has the complete native surface; full-field entries also have the complete native volume."),
+            bullet("[ ] I declared the force route. If direct coefficients are selected, every test case has an exact constant-reference Cd, Clf, and Clr file."),
             bullet("[ ] <font name='Courier'>evaluate-entry</font> completed and <font name='Courier'>result.json</font> reports the exact split as complete."),
             bullet("[ ] I inspected aggregate metrics and at least one local HTML report; any unavailable surface-only components are explicitly marked and contain no dummy values."),
             bullet("[ ] I confirmed regional diagnostics are report only, have weight 0.0, and reconstruct every submitted field's unchanged global sums."),

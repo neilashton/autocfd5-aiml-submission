@@ -13,6 +13,9 @@ from .aggregate import RESULT_SCHEMA, AggregateError, aggregate_cases
 from .constants import (
     DATASET_REVISION,
     EVALUATOR_VERSION,
+    FORCE_PREDICTION_SOURCE_DIRECT_COEFFICIENTS,
+    FORCE_PREDICTION_SOURCE_FIELD_INTEGRATED,
+    FORCE_PREDICTION_SOURCES,
     PREDICTION_SCOPE_FULL,
     PREDICTION_SCOPE_SURFACE_ONLY,
     PREDICTION_SCOPES,
@@ -23,6 +26,7 @@ from .constants import (
     contract_root,
 )
 from .core.evaluator import OFFICIAL_NATIVE_SOURCE_PIN_SHA256
+from .direct_forces import DirectForceError, validate_direct_force_document
 from .jsonio import canonical_json_bytes, read_json, sha256_bytes, sha256_file
 from .regional_aggregate import (
     RegionalAggregateError,
@@ -86,6 +90,7 @@ def create_package(result_directory: Path | str, output: Path | str) -> dict[str
         "submission_id": result.get("submission", {}).get("submission_id"),
         "dataset_id": "drivaerml",
         "prediction_scope": result.get("prediction_scope"),
+        "force_prediction_source": result.get("force_prediction_source"),
         "file_count": len(entries),
         "files": entries,
     }
@@ -176,6 +181,10 @@ def verify_package(path: Path | str) -> dict[str, Any]:
         result = read_json_bytes(archive.read("result.json"))
         if manifest.get("prediction_scope") != result.get("prediction_scope"):
             raise PackageError("package and result prediction scopes differ")
+        if manifest.get("force_prediction_source") != result.get(
+            "force_prediction_source"
+        ):
+            raise PackageError("package and result force prediction sources differ")
         _verify_result(result, archive)
     return {
         "file": source.name,
@@ -198,9 +207,13 @@ def _verify_result(result: dict[str, Any], archive: zipfile.ZipFile) -> None:
     if prediction_scope not in PREDICTION_SCOPES:
         raise PackageError("result prediction scope differs")
     submission = result.get("submission")
+    force_prediction_source = result.get("force_prediction_source")
+    if force_prediction_source not in FORCE_PREDICTION_SOURCES:
+        raise PackageError("result force prediction source differs")
     if (
         not isinstance(submission, dict)
         or submission.get("prediction_scope") != prediction_scope
+        or submission.get("force_prediction_source") != force_prediction_source
     ):
         raise PackageError("submission prediction scope differs")
     split = result.get("split")
@@ -374,6 +387,58 @@ def _verify_result(result: dict[str, Any], archive: zipfile.ZipFile) -> None:
             or set(prediction_inputs) != expected_prediction_supports
         ):
             raise PackageError(f"compact case prediction inputs differ: {case_id}")
+        force_prediction = case_document.get("force_prediction")
+        expected_force_prediction_keys = {
+            "source",
+            "field_integrated_force_coefficients",
+            "scoring_force_coefficients",
+        }
+        if force_prediction_source == FORCE_PREDICTION_SOURCE_DIRECT_COEFFICIENTS:
+            expected_force_prediction_keys.add("direct_input")
+        if (
+            not isinstance(force_prediction, dict)
+            or set(force_prediction) != expected_force_prediction_keys
+            or force_prediction.get("source") != force_prediction_source
+        ):
+            raise PackageError(f"compact case force prediction differs: {case_id}")
+        field_coefficients = core.get("force_coefficients")
+        if not isinstance(field_coefficients, dict):
+            raise PackageError(f"compact case integrated forces are missing: {case_id}")
+        expected_field_coefficients = {
+            key: field_coefficients.get(key)
+            for key in ("Cd", "Cl", "CmPitch", "Clf", "Clr")
+        }
+        if (
+            force_prediction.get("field_integrated_force_coefficients")
+            != expected_field_coefficients
+        ):
+            raise PackageError(f"compact case retained forces differ: {case_id}")
+        if force_prediction_source == FORCE_PREDICTION_SOURCE_FIELD_INTEGRATED:
+            if force_prediction.get("scoring_force_coefficients") != expected_field_coefficients:
+                raise PackageError(f"compact case scoring forces differ: {case_id}")
+        else:
+            direct_input = force_prediction.get("direct_input")
+            if (
+                not isinstance(direct_input, dict)
+                or set(direct_input) != {"path", "sha256"}
+                or direct_input.get("path") != f"direct-forces/{case_id}.json"
+                or not isinstance(direct_input.get("sha256"), str)
+            ):
+                raise PackageError(f"compact case direct force input differs: {case_id}")
+            try:
+                direct_payload = archive.read(direct_input["path"])
+                direct_document = read_json_bytes(direct_payload)
+                direct_coefficients = validate_direct_force_document(
+                    direct_document, expected_case_id=case_id
+                )
+            except (KeyError, DirectForceError) as error:
+                raise PackageError(
+                    f"compact case direct force input is invalid: {case_id}"
+                ) from error
+            if sha256_bytes(direct_payload) != direct_input["sha256"]:
+                raise PackageError(f"compact case direct force identity differs: {case_id}")
+            if force_prediction.get("scoring_force_coefficients") != direct_coefficients:
+                raise PackageError(f"compact case direct scoring forces differ: {case_id}")
         try:
             validate_case_regional_envelope(
                 core.get("report_only_regional_diagnostics", {}),
@@ -475,6 +540,7 @@ def _verify_result(result: dict[str, Any], archive: zipfile.ZipFile) -> None:
     if (
         not isinstance(scoring_summary, dict)
         or scoring_summary.get("prediction_scope") != prediction_scope
+        or scoring_summary.get("force_prediction_source") != force_prediction_source
         or scoring_summary.get("unavailable_component_metric_ids")
         != sorted(unavailable_metrics)
         or scoring_summary.get("unavailable_component_score") != 0.0
@@ -514,6 +580,7 @@ def _verify_result(result: dict[str, Any], archive: zipfile.ZipFile) -> None:
         raise PackageError("result official aggregate metrics differ from compact cases")
     for key in (
         "prediction_scope",
+        "force_prediction_source",
         "component_scores",
         "component_availability",
         "scoring",
