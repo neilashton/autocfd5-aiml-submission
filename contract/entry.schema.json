@@ -47,6 +47,34 @@
           "validation_case_ids"
         ]
       }
+    },
+    {
+      "oneOf": [
+        {
+          "properties": {
+            "training_regime": {"const": "from_scratch"},
+            "target_data_used": {"const": "official_train"},
+            "external_pretraining": {"const": false},
+            "pretraining_data": {"maxItems": 0}
+          }
+        },
+        {
+          "properties": {
+            "training_regime": {"const": "pretrained_zero_shot"},
+            "target_data_used": {"const": "none"},
+            "external_pretraining": {"const": true},
+            "pretraining_data": {"minItems": 1}
+          }
+        },
+        {
+          "properties": {
+            "training_regime": {"const": "pretrained_official_train"},
+            "target_data_used": {"const": "official_train"},
+            "external_pretraining": {"const": true},
+            "pretraining_data": {"minItems": 1}
+          }
+        }
+      ]
     }
   ],
   "required": [
@@ -55,6 +83,10 @@
     "submission_id",
     "method_name",
     "contact_email",
+    "training_regime",
+    "target_data_used",
+    "external_pretraining",
+    "pretraining_data",
     "split_id",
     "test_case_ids"
   ],
@@ -78,6 +110,55 @@
       "type": "string",
       "minLength": 3,
       "maxLength": 200
+    },
+    "training_regime": {
+      "description": "How the submitted model used external pretraining and the official target training data.",
+      "enum": [
+        "from_scratch",
+        "pretrained_zero_shot",
+        "pretrained_official_train"
+      ]
+    },
+    "target_data_used": {
+      "description": "Whether model parameter updates used the official training split.",
+      "enum": [
+        "none",
+        "official_train"
+      ]
+    },
+    "external_pretraining": {
+      "type": "boolean"
+    },
+    "pretraining_data": {
+      "description": "Named external pretrained model, checkpoint, or dataset sources. Required for either pretrained regime.",
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "oneOf": [
+          {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name"],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500
+              },
+              "url": {
+                "type": "string",
+                "pattern": "^https?://",
+                "maxLength": 2000
+              }
+            }
+          }
+        ]
+      }
     },
     "split_id": {
       "type": "string",

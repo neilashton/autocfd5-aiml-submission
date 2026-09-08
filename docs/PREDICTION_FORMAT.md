@@ -30,7 +30,7 @@ For `surface_and_volume`, the volume NPZ fields are:
 - `pMeanTrim`: float32 or float64, shape `(rows,)`;
 - `UMeanTrim`: float32 or float64, shape `(rows, 3)`.
 
-Evaluator v1.1.5 derives report-only regional diagnostics without adding prediction fields. It always reports surface regions and reports volume regions only for `surface_and_volume`. Participants do not run additional inference or submit region labels, coordinates, masks, or regional files.
+Evaluator v1.1.6 derives report-only regional diagnostics without adding prediction fields. It always reports surface regions and reports volume regions only for `surface_and_volume`. Participants do not run additional inference or submit region labels, coordinates, masks, or regional files.
 
 ## Optional direct force input
 
@@ -48,7 +48,7 @@ The default force route is `field_integrated`: all three scored coefficients are
 }
 ```
 
-The coefficients must use the evaluator's fixed constant-reference convention. `Cl` and `CmPitch` must not be supplied: the evaluator derives them as `Clf + Clr` and `(Clf - Clr) / 2`, respectively. Complete native surface fields remain mandatory and are still evaluated, integrated, and retained as a consistency diagnostic.
+The coefficients must use the evaluator's fixed constant-reference convention: `Uinf = 38.889 m/s`, `rhoinf = 1.0 kg/m^3`, `Aref = 2.17 m^2`, `Lref = 2.78618 m`, and moment reference point `(x, y, z) = (1.40009, 0.0, -0.3176) m` in the native DrivAerML coordinates. `Cl` and `CmPitch` must not be supplied: the evaluator derives them as `Clf + Clr` and `(Clf - Clr) / 2`, respectively. Complete native surface fields remain mandatory and are still evaluated, integrated, and retained as a consistency diagnostic. See [the scientific method](SCIENTIFIC_METHOD.md#fixed-force-and-pressure-reference-convention) for the coefficient equations and axis convention.
 
 Every supplied value must be finite. Raw IDs must exactly cover `[0, total_row_count)` in native order, without gaps or duplicates. Chunks normally contain at most 1,000,000 rows. Surface-only means a complete surface, not a sampled or partial surface. Do not create dummy volume chunks: absent volume fields are represented explicitly as unavailable and receive zero component points.
 

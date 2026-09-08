@@ -1,6 +1,6 @@
 # AutoCFD5 AIML submission evaluator
 
-This public repository is the participant route for evaluating predictions from the [DrivAerML dataset](https://huggingface.co/datasets/neashton/drivaerml) for the AutoCFD5 AIML workshop. Participants run the evaluator themselves, inspect their own results, and deliver one verified compact ZIP confidentially to the organisers.
+This public repository is the participant route for evaluating predictions from the [DrivAerML dataset](https://huggingface.co/datasets/neashton/drivaerml) for the AutoCFD5 AIML workshop. Participants run the evaluator themselves, inspect their own results, and confidentially deliver one verified compact ZIP for each split they submit.
 
 For the complete participant procedure, use the [formatted submission instructions](output/pdf/AutoCFD5_AIML_Submission_Instructions.pdf).
 
@@ -44,6 +44,10 @@ The AutoCFD organising committee asks every participant to use the official `ful
 
 The organisers strongly recommend these frozen splits. For an additional custom split, `entry.json` must include complete, non-overlapping `train_case_ids`, `validation_case_ids`, and `test_case_ids` arrays. See [split selection and custom splits](docs/SPLITS.md).
 
+## Training and pretrained models
+
+Models trained from scratch, entirely pretrained models used zero-shot, and pretrained models fine-tuned on the official training split are all accepted. Every v1.1.6 entry declares one of `from_scratch`, `pretrained_zero_shot`, or `pretrained_official_train`, together with its target-data use and named pretraining sources. This declaration is packaged for transparency and never changes the score. No test-case solution fields, forces, or profiles may be used in training, fine-tuning, model selection, or calibration. See [training and pretraining declaration](docs/TRAINING.md).
+
 ## Participant workflow
 
 Use Linux, Python 3.12, NumPy 2.2.6, and VTK 9.5.2. A container is provided because the native-file protections rely on Linux descriptor semantics.
@@ -51,7 +55,7 @@ Use Linux, Python 3.12, NumPy 2.2.6, and VTK 9.5.2. A container is provided beca
 ```bash
 git clone https://github.com/neilashton/autocfd5-aiml-submission.git
 cd autocfd5-aiml-submission
-git checkout evaluator-v1.1.5
+git checkout evaluator-v1.1.6
 python3.12 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
@@ -92,7 +96,21 @@ my-entry/cases/run_419/direct-force-coefficients.json
 }
 ```
 
-Use the evaluator's fixed constant-reference convention. Supply only `Cd`, `Clf`, and `Clr`; it derives `Cl = Clf + Clr` and `CmPitch = (Clf - Clr) / 2`. The declared direct values are used only for the existing three force R2 components. The native-field force reduction is still calculated, packaged, and reported alongside it. All field, profile, and regional diagnostics continue to use the submitted native fields. Existing v1.1.4 ZIPs remain valid; moving to this route does not require repeating field inference.
+Use the evaluator's fixed constant-reference convention. Supply only `Cd`, `Clf`, and `Clr`; it derives `Cl = Clf + Clr` and `CmPitch = (Clf - Clr) / 2`. The declared direct values are used only for the existing three force R2 components. The native-field force reduction is still calculated, packaged, and reported alongside it. All field, profile, and regional diagnostics continue to use the submitted native fields. Existing v1.1.4 and v1.1.5 ZIPs remain valid; moving to this route does not require repeating field inference.
+
+#### Fixed force and pressure reference convention
+
+| Reference quantity | Frozen value |
+|---|---:|
+| Freestream velocity, `Uinf` | `38.889 m/s` |
+| Reference density, `rhoinf` | `1.0 kg/m^3` |
+| Reference area, `Aref` | `2.17 m^2` |
+| Reference length, `Lref` | `2.78618 m` |
+| Moment reference point, `(x, y, z)` | `(1.40009, 0.0, -0.3176) m` |
+
+The reference point uses the native DrivAerML coordinate system. The evaluator treats `x` as drag, `y` as side force, `z` as lift, and the moment about the `y` axis as pitch. With `qinf = 0.5 * rhoinf * Uinf^2`, it uses `Cd = Fx / (qinf * Aref)`, `Cs = Fy / (qinf * Aref)`, `Cl = Fz / (qinf * Aref)`, and `CmPitch = My / (qinf * Aref * Lref)`.
+
+The supplied `pMeanTrim` and `wallShearStressMeanTrim` fields are kinematic quantities in `m^2/s^2`. Therefore `Cp = pMeanTrim / (0.5 * Uinf^2) = 2 * pMeanTrim / Uinf^2`; density cancels from the nondimensional field-derived coefficients. The exact native-polygon force and moment implementation is in [`src/autocfd5_aiml/core/surface_forces.py`](src/autocfd5_aiml/core/surface_forces.py).
 
 Evaluate the complete selected test split:
 
@@ -123,7 +141,7 @@ autocfd5-aiml package output/my-entry --output assigned-submission-id.zip
 autocfd5-aiml verify-package assigned-submission-id.zip
 ```
 
-Use the submission ID sent to you by the AutoCFD organising committee. Upload the ZIP through the [AutoCFD Dropbox File Request](https://www.dropbox.com/request/A6cJNTT9egFtYiFICjAi), then email the submission ID, filename, and SHA-256 from the generated `.sha256` file. Do not open a pull request containing an entry. See [confidential delivery](docs/CONFIDENTIAL_DELIVERY.md).
+The declared <code>split_id</code> in `entry.json` and the verified result are authoritative; the filename is a delivery label only. Keep the same committee-issued submission ID in every entry. Use `assigned-submission-id.zip` for the required `full`-split baseline. If you also submit another official split, package it separately and use `assigned-submission-id--<split-id>.zip`, for example `assigned-submission-id--medium.zip`. Upload each ZIP through the [AutoCFD Dropbox File Request](https://www.dropbox.com/request/A6cJNTT9egFtYiFICjAi), then email the submission ID, split ID, filename, and SHA-256 from the generated `.sha256` file. Do not open a pull request containing an entry. See [confidential delivery](docs/CONFIDENTIAL_DELIVERY.md).
 
 Questions can be sent to `neil@neilashton.co.uk` or `astridwalle@cfdsolutions.net`, the AutoCFD5 AI/ML TFG organisers.
 
@@ -139,6 +157,6 @@ Questions can be sent to `neil@neilashton.co.uk` or `astridwalle@cfdsolutions.ne
 
 The native dataset is very large. `autocfd5-aiml fetch-data --split-id full --prediction-scope surface_and_volume --destination /data/drivaerml --dry-run` shows the exact pinned files before downloading them. Use `--prediction-scope surface_only` to omit native volume parts, or use `--entry-root my-entry` to read both the case membership and scope from `entry.json`.
 
-For `surface_and_volume`, the v1.1.5 volume-region pass uses temporary raw geometry spools and processes topology in blocks of at most one million cells. Allow roughly 9 GiB of local temporary space per concurrently evaluated case; set `TMPDIR` to suitable local scratch when `/tmp` is too small. Temporary files are removed on both success and failure. Surface-only evaluation never downloads or opens the native volume and does not need this volume scratch allowance.
+For `surface_and_volume`, the v1.1.6 volume-region pass uses temporary raw geometry spools and processes topology in blocks of at most one million cells. Allow roughly 9 GiB of local temporary space per concurrently evaluated case; set `TMPDIR` to suitable local scratch when `/tmp` is too small. Temporary files are removed on both success and failure. Surface-only evaluation never downloads or opens the native volume and does not need this volume scratch allowance.
 
 Further detail is in [the scientific method](docs/SCIENTIFIC_METHOD.md) and [the organiser checklist](docs/ORGANISER_CHECKLIST.md).

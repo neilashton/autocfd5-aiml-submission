@@ -250,6 +250,10 @@ def _result_tree(
         "submission_id": "assigned-submission-id",
         "prediction_scope": prediction_scope,
         "force_prediction_source": result["force_prediction_source"],
+        "training_regime": "from_scratch",
+        "target_data_used": "official_train",
+        "external_pretraining": False,
+        "pretraining_data": [],
     }
     result["evaluator"] = {"version": EVALUATOR_VERSION}
     result["inputs"] = {
@@ -276,6 +280,47 @@ def test_package_is_deterministic_and_verifiable(tmp_path: Path) -> None:
     verified = verify_package(tmp_path / "first.zip")
     assert verified["submission_id"] == "assigned-submission-id"
     assert verified["entry_count"] == 54
+
+
+def test_pretrained_declaration_is_bound_into_package(tmp_path: Path) -> None:
+    root = tmp_path / "result"
+    _result_tree(root)
+    result = read_json(root / "result.json")
+    result["submission"].update(
+        {
+            "training_regime": "pretrained_zero_shot",
+            "target_data_used": "none",
+            "external_pretraining": True,
+            "pretraining_data": [
+                {"name": "Example pretrained model", "url": "https://example.org/model"}
+            ],
+        }
+    )
+    write_json(root / "result.json", result)
+
+    create_package(root, tmp_path / "pretrained.zip")
+    verified = verify_package(tmp_path / "pretrained.zip")
+
+    assert verified["submission_id"] == "assigned-submission-id"
+
+
+def test_inconsistent_pretrained_declaration_is_rejected(tmp_path: Path) -> None:
+    root = tmp_path / "result"
+    _result_tree(root)
+    result = read_json(root / "result.json")
+    result["submission"].update(
+        {
+            "training_regime": "pretrained_zero_shot",
+            "target_data_used": "official_train",
+            "external_pretraining": True,
+            "pretraining_data": ["Example pretrained model"],
+        }
+    )
+    write_json(root / "result.json", result)
+
+    create_package(root, tmp_path / "invalid-pretrained.zip")
+    with pytest.raises(PackageError, match="target_data_used='none'"):
+        verify_package(tmp_path / "invalid-pretrained.zip")
 
 
 def test_surface_only_package_is_verifiable_and_has_fixed_sixty_point_ceiling(
