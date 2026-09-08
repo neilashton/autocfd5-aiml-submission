@@ -53,9 +53,9 @@ DATASET_REVISION = "7a5c0948ce27be709b1116a3a190f806e7a8f79f"
 SUPPORT_ARCHIVE_SHA256 = "5ebcf744be53016bd158236d1f4af3290ff399b323c0e11a49c37ea9a6c686f6"
 SUPPORT_INDEX_SHA256 = "f47f8c3ed7a56632b0c02a3aec793e4cd823d5d04d5264d00fcd419bf11c0f4f"
 REGIONAL_CONTRACT_SHA256 = "2bfd372817989112642056e4c76cfb418dbdcee445c57ee20ca37ee9ca158583"
-EVALUATOR_TAG = "evaluator-v1.1.5"
-GUIDE_VERSION = "1.1.5"
-GUIDE_DATE = "2 September 2026"
+EVALUATOR_TAG = "evaluator-v1.1.6"
+GUIDE_VERSION = "1.1.6"
+GUIDE_DATE = "8 September 2026"
 
 
 def make_styles() -> dict[str, ParagraphStyle]:
@@ -516,6 +516,10 @@ def cover_story() -> list[Flowable]:
             f'<link href="{REPOSITORY_URL}" color="#22B8CF">{REPOSITORY_URL}</link>',
             "cover_meta",
         ),
+        para(
+            "Questions: neil@neilashton.co.uk or astridwalle@cfdsolutions.net",
+            "cover_meta",
+        ),
         NextPageTemplate("content"),
         PageBreak(),
     ]
@@ -567,11 +571,11 @@ def start_here() -> list[Flowable]:
             Spacer(1, 2),
             numbered(1, f"Clone the evaluator and select the frozen <b>{EVALUATOR_TAG}</b> release."),
             numbered(2, "Fetch the immutable profile-support bundle and the pinned native test files."),
-            numbered(3, "Choose one prediction scope in <b>entry.json</b> and export every required native cell for every selected case."),
+            numbered(3, "Declare training and scope in <b>entry.json</b>; export every required native cell."),
             numbered(4, "Validate the entry, then evaluate one case while developing your export."),
             numbered(5, "Evaluate the official <b>full</b> split as the minimum common comparison."),
             numbered(6, "Inspect <b>result.json</b> and selected local HTML profile reports."),
-            numbered(7, "Create and verify one deterministic ZIP, then upload it confidentially."),
+            numbered(7, "Create, verify, and confidentially upload one deterministic ZIP for every split you submit."),
             callout(
                 "Public repository does not mean public submissions",
                 "Do not commit predictions or results, attach them to an issue, or open a pull request. "
@@ -585,11 +589,11 @@ def start_here() -> list[Flowable]:
                 [
                     [
                         "Participant",
-                        "Export native-order predictions; run, inspect, package, verify, upload, and retain the original ZIP and checksum.",
+                        "Declare provenance; export native predictions; run, inspect, package, verify, upload, and retain the ZIP and checksum.",
                     ],
                     [
                         "Evaluator",
-                        "Verify fixed inputs; calculate fields, forces, and profiles; aggregate the full split; write compact, deterministic outputs.",
+                        "Verify fixed inputs; calculate fields, forces, and profiles; aggregate the selected test split; write compact, deterministic outputs.",
                     ],
                     [
                         "Organisers",
@@ -599,9 +603,9 @@ def start_here() -> list[Flowable]:
                 [31 * mm, CONTENT_WIDTH - 31 * mm],
             ),
             para("What you hand in", "h2"),
-            bullet("One verified <b>.zip</b> produced by <font name='Courier'>autocfd5-aiml package</font>."),
-            bullet("A short email containing the committee-issued submission ID, filename, and exact SHA-256."),
-            bullet("No raw native prediction files unless the organisers explicitly request a separately hosted immutable artifact."),
+            bullet("One verified <b>.zip</b> produced by <font name='Courier'>autocfd5-aiml package</font> for each split you submit."),
+            bullet("A short email containing the committee-issued submission ID, split ID, filename, and exact SHA-256."),
+            bullet("Raw native predictions only if the organisers request a separately hosted immutable artifact."),
             PageBreak(),
         ]
     )
@@ -623,6 +627,12 @@ def split_choices() -> list[Flowable]:
                 "frozen in the evaluator, so participants do not need to repeat its training and "
                 "validation IDs in <font name='Courier'>entry.json</font>.",
                 tone="orange",
+            ),
+            para(
+                "For every submitted split, keep the same committee-issued <font name='Courier'>submission_id</font>. "
+                "The verified <font name='Courier'>split_id</font> is authoritative: use "
+                "<font name='Courier'>submission-id.zip</font> for Full and "
+                "<font name='Courier'>submission-id--&lt;split-id&gt;.zip</font> for an additional official split.",
             ),
             data_table(
                 ["Official split", "Train", "Validation", "Test", "Case set"],
@@ -689,7 +699,7 @@ def setup_and_inputs() -> list[Flowable]:
                 """
 git clone https://github.com/neilashton/autocfd5-aiml-submission.git
 cd autocfd5-aiml-submission
-git checkout evaluator-v1.1.5
+git checkout evaluator-v1.1.6
 
 python3.12 -m venv .venv
 source .venv/bin/activate
@@ -756,7 +766,7 @@ autocfd5-aiml fetch-data \\
 def entry_metadata() -> list[Flowable]:
     items = section_title(
         "04 / Entry metadata",
-        "Declare the entry and exact split",
+        "Declare the method, training route, and exact split",
         "Use the exact submission ID sent to you by the AutoCFD organising committee. Start from the "
         "supplied Full-split example and keep its test-case membership and order unchanged.",
     )
@@ -777,6 +787,10 @@ cp -R examples/entry my-entry
                     ["submission_id", "Enter the exact ID sent by the AutoCFD organising committee. It uses lowercase letters, digits, dot, dash, or underscore; at most 80 characters."],
                     ["method_name", "Human-readable method name, 1-200 characters."],
                     ["contact_email", "Email monitored by the participant."],
+                    ["training_regime", "Choose <font name='Courier'>from_scratch</font>, <font name='Courier'>pretrained_zero_shot</font>, or <font name='Courier'>pretrained_official_train</font>."],
+                    ["target_data_used", "Use <font name='Courier'>none</font> for zero-shot or <font name='Courier'>official_train</font> when the official training split updates parameters."],
+                    ["external_pretraining", "Boolean; true for either pretrained route."],
+                    ["pretraining_data", "Empty for from-scratch; otherwise name every external model, checkpoint, or dataset, with an optional public URL."],
                     ["split_id", "Keep <font name='Courier'>full</font> for the requested baseline."],
                     ["prediction_scope", "Choose <font name='Courier'>surface_and_volume</font> or <font name='Courier'>surface_only</font>. State it explicitly; omission retains legacy full-field behaviour."],
                     ["force_prediction_source", "Use <font name='Courier'>field_integrated</font> (default), or <font name='Courier'>direct_coefficients</font> with one complete direct-force file per test case."],
@@ -795,6 +809,10 @@ cp -R examples/entry my-entry
   "submission_id": "assigned-submission-id",
   "method_name": "Method display name",
   "contact_email": "participant@example.org",
+  "training_regime": "from_scratch",
+  "target_data_used": "official_train",
+  "external_pretraining": false,
+  "pretraining_data": [],
   "split_id": "full",
   "prediction_scope": "surface_and_volume",
   "force_prediction_source": "field_integrated",
@@ -806,6 +824,12 @@ cp -R examples/entry my-entry
                 "The ellipsis above is explanatory and is not valid JSON. Copy "
                 "<font name='Courier'>examples/entry/entry.json</font>, which contains all 50 IDs.",
                 "small",
+            ),
+            PageBreak(),
+            para("Training declaration and validation", "h2"),
+            callout(
+                "Pretrained models are accepted",
+                "Use <font name='Courier'>pretrained_zero_shot</font> when the official target training split did not update model parameters, or <font name='Courier'>pretrained_official_train</font> after fine-tuning on that split. The validation split may support model selection, but selected test-case solution fields, forces, and profiles must remain held out. Training provenance is packaged for transparency and never changes a score.",
             ),
             para("Validate before producing every case", "h2"),
             code_block("autocfd5-aiml validate-entry my-entry"),
@@ -960,6 +984,77 @@ autocfd5-aiml evaluate-case \\
     return items
 
 
+def force_reference() -> list[Flowable]:
+    items = section_title(
+        "05A / Force convention",
+        "Use the frozen references exactly",
+        "Both the field-integrated and direct-coefficient routes use the same constant-reference "
+        "DrivAerML convention. These quantities are fixed for every case and every split.",
+    )
+    items.extend(
+        [
+            data_table(
+                ["Reference quantity", "Symbol", "Frozen value"],
+                [
+                    ["Freestream velocity", "Uinf", "38.889 m/s"],
+                    ["Reference density", "rhoinf", "1.0 kg/m^3"],
+                    ["Reference area", "Aref", "2.17 m^2"],
+                    ["Reference length", "Lref", "2.78618 m"],
+                    ["Moment reference point", "(x, y, z)", "(1.40009, 0.0, -0.3176) m"],
+                ],
+                [62 * mm, 29 * mm, CONTENT_WIDTH - 91 * mm],
+                compact=True,
+            ),
+            callout(
+                "Native axes and pitch origin",
+                "The reference point is expressed in the native DrivAerML coordinate system. "
+                "The evaluator uses the x force for drag, y force for side force, z force for lift, "
+                "and the moment about the y axis through that point for pitch.",
+            ),
+            para("Coefficient definitions", "h2"),
+            code_block(
+                """
+qinf     = 0.5 * rhoinf * Uinf^2
+Cd       = Fx / (qinf * Aref)
+Cs       = Fy / (qinf * Aref)
+Cl       = Fz / (qinf * Aref)
+CmPitch  = My / (qinf * Aref * Lref)
+
+Clf      = Cl / 2 + CmPitch
+Clr      = Cl / 2 - CmPitch
+Cl       = Clf + Clr
+CmPitch  = (Clf - Clr) / 2
+"""
+            ),
+            callout(
+                "Kinematic pressure and wall shear",
+                "The supplied <font name='Courier'>pMeanTrim</font> and "
+                "<font name='Courier'>wallShearStressMeanTrim</font> arrays are kinematic quantities "
+                "in m^2/s^2. Therefore <font name='Courier'>Cp = pMeanTrim / (0.5 * Uinf^2) "
+                "= 2 * pMeanTrim / Uinf^2</font>. The nominal density cancels from the "
+                "nondimensional field-derived coefficients.",
+                tone="orange",
+            ),
+            para("Direct coefficient submissions", "h2"),
+            para(
+                "A <font name='Courier'>direct_coefficients</font> entry supplies only "
+                "<font name='Courier'>Cd</font>, <font name='Courier'>Clf</font>, and "
+                "<font name='Courier'>Clr</font> for every test case. The evaluator derives "
+                "<font name='Courier'>Cl</font> and <font name='Courier'>CmPitch</font> with the "
+                "relations above. Complete native surface fields remain mandatory and are still "
+                "integrated as a report-only consistency diagnostic.",
+            ),
+            callout(
+                "Auditable implementation",
+                "The exact native-polygon integration and normalization are in "
+                "<font name='Courier'>src/autocfd5_aiml/core/surface_forces.py</font>.",
+            ),
+            PageBreak(),
+        ]
+    )
+    return items
+
+
 def full_evaluation() -> list[Flowable]:
     items = section_title(
         "07 / Full evaluation",
@@ -988,11 +1083,11 @@ autocfd5-aiml evaluate-entry my-entry \\
                 "small",
             ),
             callout(
-                "Existing full-field inference is reusable",
-                "If you already produced complete v1.1.2 or v1.1.3 surface and volume prediction "
+                "Existing submissions and full-field inference are reusable",
+                "Existing v1.1.4 and v1.1.5 compact ZIPs remain valid. If you already produced complete v1.1.2 or v1.1.3 surface and volume prediction "
                 "chunks, do not run model inference again. Keep those manifests and NPZ files, "
                 "set <font name='Courier'>prediction_scope = surface_and_volume</font>, and rerun "
-                "the v1.1.5 evaluator into a fresh output directory. Adding direct coefficients does not require rerunning field inference.",
+                "the v1.1.6 evaluator into a fresh output directory. Adding direct coefficients or a training declaration does not require rerunning field inference.",
             ),
             para("Output layout", "h2"),
             code_block(
@@ -1117,12 +1212,20 @@ autocfd5-aiml package output/assigned-submission-id \\
   --output assigned-submission-id.zip
 
 autocfd5-aiml verify-package assigned-submission-id.zip
+
+# For an additional official split, for example medium:
+autocfd5-aiml package output/assigned-submission-id--medium \\
+  --output assigned-submission-id--medium.zip
+
+autocfd5-aiml verify-package assigned-submission-id--medium.zip
 """
             ),
             para(
                 "Replace <font name='Courier'>assigned-submission-id</font> with the exact ID sent by the "
-                "AutoCFD organising committee. Packaging also writes "
-                "<font name='Courier'>assigned-submission-id.zip.sha256</font>. Both commands "
+                "AutoCFD organising committee, but keep that same ID in every submitted entry. Use "
+                "<font name='Courier'>assigned-submission-id.zip</font> for the required Full split and "
+                "<font name='Courier'>assigned-submission-id--&lt;split-id&gt;.zip</font> for an additional "
+                "official split. Packaging also writes a matching <font name='Courier'>.sha256</font> file. Both commands "
                 "refuse unsafe or inconsistent content. The ZIP is closed by "
                 "<font name='Courier'>package-manifest.json</font>, which records every member's size and SHA-256.",
             ),
@@ -1131,7 +1234,7 @@ autocfd5-aiml verify-package assigned-submission-id.zip
                 1,
                 f'<link href="{DROPBOX_REQUEST_URL}"><b>Open the AutoCFD Dropbox File Request</b></link>.',
             ),
-            numbered(2, "Upload only <font name='Courier'>assigned-submission-id.zip</font>; wait for the upload to complete."),
+            numbered(2, "Upload <font name='Courier'>assigned-submission-id.zip</font> for Full, plus any separately packaged <font name='Courier'>assigned-submission-id--&lt;split-id&gt;.zip</font> files; wait for each upload to complete."),
             numbered(3, "Retain the original ZIP and its generated <font name='Courier'>.sha256</font> file unchanged."),
             numbered(4, "Email the organisers the receipt details below. Do not attach the ZIP to email."),
             numbered(5, "Keep predictions, results, and reports out of public Git history and issue trackers."),
@@ -1148,9 +1251,10 @@ autocfd5-aiml verify-package assigned-submission-id.zip
 Subject: [AutoCFD5 AIML] entry receipt - <submission-id>
 
 Submission ID: <submission-id>
+Split ID: <full or other official split>
 Method: <method-name>
-Uploaded filename: <submission-id>.zip
-SHA-256: <copy the 64-character value from <submission-id>.zip.sha256>
+Uploaded filename: <submission-id>.zip or <submission-id>--<split-id>.zip
+SHA-256: <copy the 64-character value from the matching .sha256 file>
 Upload completed: <YYYY-MM-DD HH:MM UTC>
 Contact: <contact-email>
 """
@@ -1162,12 +1266,6 @@ Contact: <contact-email>
                 "exact <font name='Courier'>private_immutable_url</font>, <font name='Courier'>size_bytes</font>, "
                 "and <font name='Courier'>sha256</font>. The evaluator records the reference but does not copy "
                 "that artifact into the result ZIP.",
-            ),
-            para(
-                'Questions: <link href="mailto:neil@neilashton.co.uk">neil@neilashton.co.uk</link> or '
-                '<link href="mailto:astridwalle@cfdsolutions.net">astridwalle@cfdsolutions.net</link>, '
-                "the AutoCFD5 AI/ML TFG organisers.",
-                "small",
             ),
             PageBreak(),
         ]
@@ -1207,15 +1305,16 @@ def troubleshooting() -> list[Flowable]:
             para("Final participant checklist", "h2"),
             bullet(f"[ ] I used Linux, Python 3.12, and the frozen <b>{EVALUATOR_TAG}</b> release."),
             bullet("[ ] The support and native dataset identities verified automatically."),
-            bullet("[ ] My <font name='Courier'>entry.json</font> uses the submission ID sent by the AutoCFD organising committee and the official Full split."),
-            bullet("[ ] I declared one prediction scope. Every selected case has the complete native surface; full-field entries also have the complete native volume."),
-            bullet("[ ] I declared the force route. If direct coefficients are selected, every test case has an exact constant-reference Cd, Clf, and Clr file."),
+            bullet("[ ] My <font name='Courier'>entry.json</font> uses the committee submission ID and correct split ID; Full is included as the required baseline."),
+            bullet("[ ] I declared the training regime and every external pretraining source; test reference data remained held out."),
+            bullet("[ ] Every selected case has the full native surface; full-field entries also have the full native volume."),
+            bullet("[ ] I declared the force route; direct entries provide constant-reference Cd, Clf, and Clr for every case."),
             bullet("[ ] <font name='Courier'>evaluate-entry</font> completed and <font name='Courier'>result.json</font> reports the exact split as complete."),
-            bullet("[ ] I inspected aggregate metrics and at least one local HTML report; any unavailable surface-only components are explicitly marked and contain no dummy values."),
+            bullet("[ ] I inspected aggregate metrics and one local report; unavailable surface-only components contain no dummy values."),
             bullet("[ ] I confirmed regional diagnostics are report only, have weight 0.0, and reconstruct every submitted field's unchanged global sums."),
             bullet("[ ] <font name='Courier'>verify-package</font> reported the final ZIP as valid."),
-            bullet("[ ] I uploaded the ZIP through the AutoCFD Dropbox File Request and retained the original ZIP plus checksum."),
-            bullet("[ ] My receipt email contains the exact submission ID, filename, and SHA-256."),
+            bullet("[ ] I uploaded through the AutoCFD Dropbox File Request and retained the original ZIP and checksum."),
+            bullet("[ ] My receipt email contains the exact submission ID, split ID, filename, and SHA-256."),
         ]
     )
     return items
@@ -1231,6 +1330,7 @@ def build(output: Path) -> None:
         setup_and_inputs,
         entry_metadata,
         prediction_format,
+        force_reference,
         development_test,
         full_evaluation,
         scoring,

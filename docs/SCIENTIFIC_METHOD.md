@@ -4,6 +4,10 @@
 
 All native geometry and reference arrays are bound to the public DrivAerML dataset revision `7a5c0948ce27be709b1116a3a190f806e7a8f79f`. The evaluator checks exact file sizes and SHA-256 identities before using them. Surface pressure and wall shear use native polygon order and published polygon areas. Volume pressure and velocity use one equal weight per native volume cell.
 
+## Training provenance and test integrity
+
+Training provenance is report-only metadata and never changes a metric or component weight. Evaluator v1.1.6 accepts models trained from scratch on the official training split, externally pretrained models used zero-shot, and externally pretrained models fine-tuned on the official training split. The official validation split may support model selection but not parameter updates. Selected test-case solution fields, force coefficients, and profiles remain held out from pretraining, fine-tuning, selection, and calibration. The evaluator validates and packages the participant's declaration; it cannot independently audit checkpoint history.
+
 ## Prediction scopes
 
 The evaluator accepts two complete-split scopes. `surface_and_volume` requires all native surface and volume cells and preserves the original nine-component calculation. `surface_only` still requires every native surface cell, but never downloads, opens, or evaluates volume predictions.
@@ -22,6 +26,26 @@ The four field errors are complete-case relative L2 percentages, macro-averaged 
 | Volume pressure, equal native cells | 0.10 | 15% |
 
 The default force route integrates coefficients from the predicted native surface fields. Alternatively, an entry may explicitly declare the `direct_coefficients` route and supply direct `Cd`, `Clf`, and `Clr` for every test case in the fixed constant-reference convention. The evaluator derives `Cl = Clf + Clr` and `CmPitch = (Clf - Clr) / 2`; it does not accept participant-supplied `Cl` or pitch values. In either route, drag R2 has weight 0.15, lift R2 has weight 0.05, and pitch-moment R2 has weight 0.05. Surface fields remain mandatory, and their integrated coefficients are retained as a report-only consistency diagnostic when direct coefficients are selected.
+
+### Fixed force and pressure reference convention
+
+| Reference quantity | Frozen value |
+|---|---:|
+| Freestream velocity, `Uinf` | `38.889 m/s` |
+| Reference density, `rhoinf` | `1.0 kg/m^3` |
+| Reference area, `Aref` | `2.17 m^2` |
+| Reference length, `Lref` | `2.78618 m` |
+| Moment reference point, `(x, y, z)` | `(1.40009, 0.0, -0.3176) m` |
+
+The reference point is expressed in the native DrivAerML coordinates. The evaluator uses the `x` force for drag, `y` force for side force, `z` force for lift, and the moment about the `y` axis for pitch. With `qinf = 0.5 * rhoinf * Uinf^2`:
+
+- `Cd = Fx / (qinf * Aref)`;
+- `Cs = Fy / (qinf * Aref)`;
+- `Cl = Fz / (qinf * Aref)`;
+- `CmPitch = My / (qinf * Aref * Lref)`;
+- `Clf = Cl / 2 + CmPitch` and `Clr = Cl / 2 - CmPitch`.
+
+The native `pMeanTrim` and `wallShearStressMeanTrim` fields are kinematic quantities in `m^2/s^2`. Consequently, `Cp = pMeanTrim / (0.5 * Uinf^2) = 2 * pMeanTrim / Uinf^2`, and the nominal density cancels from the nondimensional field-derived force coefficients. The auditable implementation is [`src/autocfd5_aiml/core/surface_forces.py`](../src/autocfd5_aiml/core/surface_forces.py).
 
 ## Regional field reports
 

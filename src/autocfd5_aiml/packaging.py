@@ -34,6 +34,7 @@ from .regional_aggregate import (
     validate_aggregate_regional_diagnostics,
     validate_case_regional_envelope,
 )
+from .training import TrainingDeclarationError, validate_training_declaration
 
 PACKAGE_SCHEMA = "autocfd5-aiml-result-package-v1"
 _ZIP_TIME = (2026, 1, 1, 0, 0, 0)
@@ -91,6 +92,7 @@ def create_package(result_directory: Path | str, output: Path | str) -> dict[str
         "dataset_id": "drivaerml",
         "prediction_scope": result.get("prediction_scope"),
         "force_prediction_source": result.get("force_prediction_source"),
+        "training_regime": result.get("submission", {}).get("training_regime"),
         "file_count": len(entries),
         "files": entries,
     }
@@ -185,6 +187,10 @@ def verify_package(path: Path | str) -> dict[str, Any]:
             "force_prediction_source"
         ):
             raise PackageError("package and result force prediction sources differ")
+        if manifest.get("training_regime") != result.get("submission", {}).get(
+            "training_regime"
+        ):
+            raise PackageError("package and result training regimes differ")
         _verify_result(result, archive)
     return {
         "file": source.name,
@@ -216,6 +222,10 @@ def _verify_result(result: dict[str, Any], archive: zipfile.ZipFile) -> None:
         or submission.get("force_prediction_source") != force_prediction_source
     ):
         raise PackageError("submission prediction scope differs")
+    try:
+        validate_training_declaration(submission)
+    except TrainingDeclarationError as error:
+        raise PackageError(str(error)) from error
     split = result.get("split")
     if not isinstance(split, dict) or split.get("complete_exact_membership") is not True:
         raise PackageError("result split is incomplete")

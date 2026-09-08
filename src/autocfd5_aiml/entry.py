@@ -36,6 +36,11 @@ from .regional_aggregate import (
     aggregate_regional_diagnostics,
     validate_case_regional_envelope,
 )
+from .training import (
+    TRAINING_DECLARATION_KEYS,
+    TrainingDeclarationError,
+    validate_training_declaration,
+)
 
 ENTRY_SCHEMA = "autocfd5-aiml-entry-v1"
 PROFILE_CHUNK_SCHEMA = "autocfd5-aiml-profile-prediction-chunk-v1"
@@ -50,6 +55,7 @@ _ENTRY_KEYS = {
     "split_id",
     "prediction_scope",
     "force_prediction_source",
+    *TRAINING_DECLARATION_KEYS,
     "train_case_ids",
     "validation_case_ids",
     "test_case_ids",
@@ -148,6 +154,10 @@ def load_entry(path: Path | str) -> dict[str, Any]:
         raise EntryError("split_id is invalid")
     entry_prediction_scope(document)
     entry_force_prediction_source(document)
+    try:
+        validate_training_declaration(document)
+    except TrainingDeclarationError as error:
+        raise EntryError(str(error)) from error
     test_case_ids = _case_id_array(document.get("test_case_ids"), "test_case_ids")
     official_split_path = contract_root() / "splits" / f"{split_id}.json"
     custom_fields = {"train_case_ids", "validation_case_ids"} & set(document)
@@ -565,7 +575,13 @@ def evaluate_entry(
         scoring_path=scoring_path,
     )
     result["submission"] = {
-        key: entry[key] for key in ("submission_id", "method_name", "contact_email")
+        key: entry[key]
+        for key in (
+            "submission_id",
+            "method_name",
+            "contact_email",
+            *TRAINING_DECLARATION_KEYS,
+        )
     }
     result["submission"]["prediction_scope"] = prediction_scope
     result["submission"]["force_prediction_source"] = force_prediction_source

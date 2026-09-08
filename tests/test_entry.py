@@ -17,6 +17,11 @@ from autocfd5_aiml.entry import (
     load_entry,
 )
 from autocfd5_aiml.jsonio import write_json
+from autocfd5_aiml.training import (
+    TRAINING_REGIME_FROM_SCRATCH,
+    TRAINING_REGIME_PRETRAINED_OFFICIAL_TRAIN,
+    TRAINING_REGIME_PRETRAINED_ZERO_SHOT,
+)
 
 
 def _custom_entry() -> dict[str, object]:
@@ -26,6 +31,10 @@ def _custom_entry() -> dict[str, object]:
         "submission_id": "assigned-submission-id",
         "method_name": "Example method",
         "contact_email": "participant@example.org",
+        "training_regime": TRAINING_REGIME_FROM_SCRATCH,
+        "target_data_used": "official_train",
+        "external_pretraining": False,
+        "pretraining_data": [],
         "split_id": "custom-study",
         "train_case_ids": ["run_1", "run_2"],
         "validation_case_ids": ["run_3"],
@@ -40,6 +49,7 @@ def test_official_example_uses_only_committee_submission_id() -> None:
     assert entry["split_id"] == "full"
     assert entry_prediction_scope(entry) == PREDICTION_SCOPE_FULL
     assert entry_force_prediction_source(entry) == FORCE_PREDICTION_SOURCE_FIELD_INTEGRATED
+    assert entry["training_regime"] == TRAINING_REGIME_FROM_SCRATCH
     assert "train_case_ids" not in entry
     assert "validation_case_ids" not in entry
 
@@ -84,6 +94,80 @@ def test_direct_force_route_is_explicit_and_closed(tmp_path: Path) -> None:
     write_json(invalid_path, invalid)
     with pytest.raises(EntryError, match="force_prediction_source"):
         load_entry(invalid_path)
+
+
+@pytest.mark.parametrize(
+    ("training_regime", "target_data_used"),
+    [
+        (TRAINING_REGIME_PRETRAINED_ZERO_SHOT, "none"),
+        (TRAINING_REGIME_PRETRAINED_OFFICIAL_TRAIN, "official_train"),
+    ],
+)
+def test_pretrained_training_regimes_are_accepted(
+    tmp_path: Path, training_regime: str, target_data_used: str
+) -> None:
+    entry = _custom_entry()
+    entry.update(
+        {
+            "training_regime": training_regime,
+            "target_data_used": target_data_used,
+            "external_pretraining": True,
+            "pretraining_data": [
+                {"name": "Example pretrained CFD model", "url": "https://example.org/model"}
+            ],
+        }
+    )
+    path = tmp_path / training_regime / "entry.json"
+    write_json(path, entry)
+
+    assert load_entry(path)["training_regime"] == training_regime
+
+
+@pytest.mark.parametrize(
+    "updates, message",
+    [
+        ({"training_regime": "pretrained_maybe"}, "training_regime"),
+        (
+            {
+                "training_regime": TRAINING_REGIME_PRETRAINED_ZERO_SHOT,
+                "target_data_used": "official_train",
+                "external_pretraining": True,
+                "pretraining_data": ["Example checkpoint"],
+            },
+            "target_data_used='none'",
+        ),
+        (
+            {
+                "training_regime": TRAINING_REGIME_PRETRAINED_OFFICIAL_TRAIN,
+                "target_data_used": "official_train",
+                "external_pretraining": True,
+                "pretraining_data": [],
+            },
+            "named pretraining_data",
+        ),
+        ({"external_pretraining": True}, "from_scratch"),
+    ],
+)
+def test_inconsistent_training_declarations_are_rejected(
+    tmp_path: Path, updates: dict[str, object], message: str
+) -> None:
+    entry = _custom_entry()
+    entry.update(updates)
+    path = tmp_path / "entry.json"
+    write_json(path, entry)
+
+    with pytest.raises(EntryError, match=message):
+        load_entry(path)
+
+
+def test_training_declaration_is_required(tmp_path: Path) -> None:
+    entry = _custom_entry()
+    del entry["training_regime"]
+    path = tmp_path / "entry.json"
+    write_json(path, entry)
+
+    with pytest.raises(EntryError, match="missing"):
+        load_entry(path)
 
 
 def test_custom_split_requires_complete_disjoint_membership(tmp_path: Path) -> None:

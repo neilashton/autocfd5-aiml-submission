@@ -15,6 +15,8 @@ The AutoCFD organising committee asks every participant to evaluate the official
 
 Official membership and order are frozen in `contract/splits/`. For an official split, copy its ordered `test_case_ids` into `entry.json`; do not add training or validation arrays because the evaluator already has them.
 
+Create and package one entry for each split you submit. The `split_id` in the verified result is authoritative, so keep the committee-issued `submission_id` unchanged across entries. Use `submission-id.zip` for the required `full`-split baseline and `submission-id--<split-id>.zip` for any additional official split, for example `submission-id--medium.zip`.
+
 ## Custom splits
 
 The organisers strongly recommend using the official splits. If you also use a split that is not listed above, give it a new safe `split_id` and include all three arrays in `entry.json`:
