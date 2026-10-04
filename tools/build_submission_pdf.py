@@ -53,9 +53,9 @@ DATASET_REVISION = "7a5c0948ce27be709b1116a3a190f806e7a8f79f"
 SUPPORT_ARCHIVE_SHA256 = "5ebcf744be53016bd158236d1f4af3290ff399b323c0e11a49c37ea9a6c686f6"
 SUPPORT_INDEX_SHA256 = "f47f8c3ed7a56632b0c02a3aec793e4cd823d5d04d5264d00fcd419bf11c0f4f"
 REGIONAL_CONTRACT_SHA256 = "2bfd372817989112642056e4c76cfb418dbdcee445c57ee20ca37ee9ca158583"
-EVALUATOR_TAG = "evaluator-v1.1.6"
-GUIDE_VERSION = "1.1.6"
-GUIDE_DATE = "8 September 2026"
+EVALUATOR_TAG = "evaluator-v1.1.7"
+GUIDE_VERSION = "1.1.7"
+GUIDE_DATE = "4 October 2026"
 
 
 def make_styles() -> dict[str, ParagraphStyle]:
@@ -699,7 +699,7 @@ def setup_and_inputs() -> list[Flowable]:
                 """
 git clone https://github.com/neilashton/autocfd5-aiml-submission.git
 cd autocfd5-aiml-submission
-git checkout evaluator-v1.1.6
+git checkout evaluator-v1.1.7
 
 python3.12 -m venv .venv
 source .venv/bin/activate
@@ -1084,10 +1084,10 @@ autocfd5-aiml evaluate-entry my-entry \\
             ),
             callout(
                 "Existing submissions and full-field inference are reusable",
-                "Existing v1.1.4 and v1.1.5 compact ZIPs remain valid. If you already produced complete v1.1.2 or v1.1.3 surface and volume prediction "
+                "Existing v1.1.4, v1.1.5, and v1.1.6 compact ZIPs remain valid. If you already produced complete v1.1.2 or v1.1.3 surface and volume prediction "
                 "chunks, do not run model inference again. Keep those manifests and NPZ files, "
                 "set <font name='Courier'>prediction_scope = surface_and_volume</font>, and rerun "
-                "the v1.1.6 evaluator into a fresh output directory. Adding direct coefficients or a training declaration does not require rerunning field inference.",
+                "the v1.1.7 evaluator into a fresh output directory. Adding direct coefficients or a training declaration does not require rerunning field inference.",
             ),
             para("Output layout", "h2"),
             code_block(

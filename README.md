@@ -25,6 +25,8 @@ The scientific calculation is frozen:
 
 The regional reports reuse the predictions supplied in the selected scope, so they require no new inference or participant fields. They do not change official metric values, scoring caps, weights, component scores, or overall score. The exact report-only partitions are frozen in [`contract/regional-diagnostics.json`](contract/regional-diagnostics.json), and complete-split results retain their compact aggregate in `regional-diagnostics.json`.
 
+Evaluator v1.1.7 uses pairwise regional summation to prevent valid large prediction chunks from failing reconstruction checks due to rounding. The reconstruction tolerance, official scoring calculations, formats, and frozen contracts are unchanged. Existing predictions can be evaluated again without repeating inference.
+
 The scored metric IDs, numerical outputs, compact `result.json`, and 40-series profile output remain compatible with the approved DrivAerML evaluator. Only repository-specific administrative envelopes, identities, and report-only diagnostics differ.
 
 ## Official splits
@@ -55,7 +57,7 @@ Use Linux, Python 3.12, NumPy 2.2.6, and VTK 9.5.2. A container is provided beca
 ```bash
 git clone https://github.com/neilashton/autocfd5-aiml-submission.git
 cd autocfd5-aiml-submission
-git checkout evaluator-v1.1.6
+git checkout evaluator-v1.1.7
 python3.12 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
