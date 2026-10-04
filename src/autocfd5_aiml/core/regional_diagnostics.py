@@ -521,7 +521,16 @@ class _ChunkSums:
 
 
 def _bins(codes: np.ndarray, weights: np.ndarray | None = None) -> np.ndarray:
-    return np.bincount(codes, weights=weights, minlength=4)
+    if weights is None:
+        return np.bincount(codes, minlength=4)
+    # Weighted bincount adds sequentially within each region. At supported
+    # million-row chunk sizes, rounding can exceed the reconstruction tolerance
+    # even for valid inputs. Masked one-dimensional sum uses NumPy's pairwise
+    # reduction, while native entity counts stay exact and scores stay untouched.
+    return np.asarray(
+        [np.sum(weights[codes == code], dtype=np.float64) for code in range(4)],
+        dtype=np.float64,
+    )
 
 
 def _finite_nonnegative(value: float, label: str) -> float:

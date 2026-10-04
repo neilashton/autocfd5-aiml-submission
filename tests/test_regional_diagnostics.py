@@ -4,6 +4,7 @@ import copy
 import hashlib
 import json
 import math
+from dataclasses import asdict
 
 import numpy as np
 import pytest
@@ -265,6 +266,51 @@ def test_vector_components_reconstruct_region_vector_error() -> None:
         assert math.fsum(
             value for value in values["component_fraction_of_region_squared_error"].values()
         ) == pytest.approx(1.0)
+
+
+@pytest.mark.parametrize("physical_weight", [1.0, 0.3])
+@pytest.mark.parametrize("component_labels", [("p",), ("x", "y", "z")])
+def test_million_row_regions_reconstruct_without_relaxing_tolerance(
+    component_labels: tuple[str, ...],
+    physical_weight: float,
+) -> None:
+    # A supported-size chunk with repeated nonbinary contributions exposes
+    # sequential summation drift, even though every input and region is valid.
+    count = 1_000_000
+    codes = np.zeros(count, dtype=np.uint8)
+    codes[-3:] = [1, 2, 3]
+    if len(component_labels) == 1:
+        truth = np.full(count, 4.0)
+        prediction = truth + math.sqrt(0.6)
+    else:
+        truth = np.tile([4.0, 3.0, 0.0], (count, 1))
+        prediction = truth + np.sqrt([0.2, 0.2, 0.6])
+    weights = np.full(count, physical_weight)
+    global_statistics = _global_statistics(truth, prediction, weights, ((0, count),))
+    accumulator = RegionalFieldAccumulator(
+        SURFACE_REGION_DEFINITION, count, component_labels
+    )
+    accumulator.add_chunk(0, codes, truth, prediction, weights)
+    report = accumulator.finalize(
+        expected_uniform=global_statistics.uniform,
+        expected_physical=global_statistics.physical,
+    )
+
+    assert [row["entity_count"] for row in report["regions"]] == [count - 3, 1, 1, 1]
+    reconstruction = report["reconstruction"]
+    assert reconstruction["tolerance"] == {"relative": 5.0e-12, "absolute": 1.0e-12}
+    assert reconstruction["expected_uniform"] == asdict(global_statistics.uniform)
+    assert reconstruction["expected_physical"] == asdict(global_statistics.physical)
+    validate_regional_field_report(report, SURFACE_REGION_DEFINITION)
+
+    altered = copy.deepcopy(report)
+    altered["regions"][0]["equal_entity"]["component_squared_error"][
+        component_labels[0]
+    ] *= 1.01
+    with pytest.raises(
+        RegionalDiagnosticError, match="region.equal_entity.component_squared_error"
+    ):
+        validate_regional_field_report(altered, SURFACE_REGION_DEFINITION)
 
 
 def test_velocity_magnitude_and_direction_are_separate_additive_diagnostics() -> None:
